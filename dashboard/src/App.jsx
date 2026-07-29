@@ -26,7 +26,10 @@ import {
   Mail,
 } from "lucide-react";
 
-const API_BASE = `http://${window.location.hostname}:8000`;
+// Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
+// variáveis de ambiente do provedor de hospedagem do dashboard. Sem isso, cai
+// no endereço de desenvolvimento local (mesmo host, porta 8000).
+const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:8000`;
 
 const COLORS = {
   bg: "#12141A",
@@ -107,6 +110,17 @@ function Field({ label, type, ...props }) {
   );
 }
 
+function Logo({ size = 20, fontSize = 16 }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <ShieldAlert size={size} color={COLORS.amber} />
+      <span style={{ fontWeight: 700, fontSize }}>
+        vig<span style={{ color: COLORS.teal }}>IA</span>
+      </span>
+    </div>
+  );
+}
+
 function AuthShell({ children, width = 320 }) {
   return (
     <div
@@ -124,9 +138,8 @@ function AuthShell({ children, width = 320 }) {
     >
       <style>{globalFonts}</style>
       <div style={{ width, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 28 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 22 }}>
-          <ShieldAlert size={20} color={COLORS.amber} />
-          <span style={{ fontWeight: 700, fontSize: 16 }}>Sentinela</span>
+        <div style={{ marginBottom: 22 }}>
+          <Logo size={20} fontSize={16} />
         </div>
         {children}
       </div>
@@ -937,9 +950,8 @@ function Dashboard({ token, onLogout }) {
       <style>{globalFonts}</style>
 
       <div style={{ width: 208, flexShrink: 0, background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, padding: "20px 14px", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 6px", marginBottom: 28 }}>
-          <ShieldAlert size={20} color={COLORS.amber} />
-          <span style={{ fontWeight: 700, fontSize: 15 }}>Sentinela</span>
+        <div style={{ padding: "0 6px", marginBottom: 28 }}>
+          <Logo size={20} fontSize={15} />
         </div>
 
         <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint, letterSpacing: "0.08em", textTransform: "uppercase", padding: "0 6px", marginBottom: 8 }}>

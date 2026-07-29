@@ -1,0 +1,6 @@
+opencv-python==4.10.0.84
+ultralytics==8.3.28
+mediapipe==0.10.18
+shapely==2.0.6
+requests==2.32.3
+numpy==1.26.4

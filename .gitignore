@@ -1,0 +1,23 @@
+# Segredos — nunca commitar
+backend/.env
+.env
+
+# Python
+backend/app/__pycache__/
+backend/app/**/__pycache__/
+edge-detection/__pycache__/
+*.pyc
+
+# Node / Vite
+dashboard/node_modules/
+dashboard/dist/
+
+# Configuração local do Claude Code (específica desta máquina)
+.claude/settings.local.json
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Zip original (conteúdo já extraído no repositório)
+files.zip

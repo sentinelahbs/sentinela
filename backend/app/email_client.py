@@ -1,25 +1,22 @@
 """
-Envio de email transacional.
+Envio de email transacional via API HTTP do SendGrid.
 
-Usa SMTP genérico — funciona com qualquer provedor que ofereça um
-relay SMTP (Amazon SES, SendGrid, Postmark, Mailgun, até um Gmail
-Workspace para testes). Só troca as variáveis de ambiente, sem
-mudar código.
+Usava SMTP genérico antes, mas várias hospedagens (Railway incluída)
+bloqueiam ou têm instabilidade em conexões de saída na porta de SMTP,
+o que travava a requisição inteira sem nunca dar erro nem timeout.
+API HTTP por HTTPS (porta 443) não tem esse problema.
 
-Se preferir um provedor via API HTTP em vez de SMTP (ex: Resend,
-Postmark API), troca só o método `send` — o resto do app chama só
-`EmailClient.send_invite_email(...)`, então a troca fica isolada aqui.
+Se trocar de provedor de email, troca só o método `send` — o resto do
+app chama só `EmailClient.send_invite_email(...)`, a troca fica
+isolada aqui.
 """
 
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.sendgrid.net")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+# Reaproveita a variável SMTP_PASSWORD como chave de API do SendGrid —
+# é o mesmo valor (a API key), só muda como ela é usada por baixo dos panos.
+SENDGRID_API_KEY = os.environ.get("SMTP_PASSWORD", "")
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "naoresponda@suaempresa.com.br")
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "VigIA")
 
@@ -38,18 +35,26 @@ LOGO_HTML = """
 
 class EmailClient:
     def send(self, to_email: str, subject: str, html_body: str, text_body: str):
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = f"{EMAIL_FROM_NAME} <{EMAIL_FROM}>"
-        msg["To"] = to_email
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            if SMTP_USER:
-                server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(EMAIL_FROM, [to_email], msg.as_string())
+        response = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            headers={
+                "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "personalizations": [{"to": [{"email": to_email}]}],
+                "from": {"email": EMAIL_FROM, "name": EMAIL_FROM_NAME},
+                "subject": subject,
+                "content": [
+                    {"type": "text/plain", "value": text_body},
+                    {"type": "text/html", "value": html_body},
+                ],
+            },
+            # Timeout curto — nunca deixa o pedido do usuário travado
+            # esperando o provedor de email responder.
+            timeout=10,
+        )
+        response.raise_for_status()
 
     def send_welcome_email(self, to_email: str, owner_name: str, company_name: str):
         subject = f"Bem-vindo(a) ao VigIA, {owner_name}"

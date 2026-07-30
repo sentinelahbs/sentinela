@@ -42,6 +42,37 @@ class EmailClient:
                 server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(EMAIL_FROM, [to_email], msg.as_string())
 
+    def send_welcome_email(self, to_email: str, owner_name: str, company_name: str):
+        subject = f"Bem-vindo(a) ao VigIA, {owner_name}"
+
+        html_body = f"""
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          <p>Olá, {owner_name},</p>
+          <p>Sua conta e a primeira loja da <strong>{company_name}</strong> já
+          estão prontas no VigIA.</p>
+          <p style="margin: 24px 0;">
+            <a href="{APP_BASE_URL}"
+               style="background:#F2A93B;color:#1a1200;padding:10px 18px;
+                      border-radius:8px;text-decoration:none;font-weight:600;">
+              Acessar o painel
+            </a>
+          </p>
+          <p style="color:#888;font-size:13px;">
+            A chave de acesso da loja (usada pra conectar a câmera) fica
+            disponível dentro do painel, na tela da própria loja.
+          </p>
+        </div>
+        """
+
+        text_body = (
+            f"Olá, {owner_name},\n\n"
+            f"Sua conta e a primeira loja da {company_name} já estão prontas no VigIA.\n"
+            f"Acesse o painel em: {APP_BASE_URL}\n\n"
+            f"A chave de acesso da loja fica disponível dentro do painel, na tela da própria loja."
+        )
+
+        self.send(to_email, subject, html_body, text_body)
+
     def send_invite_email(self, to_email: str, invited_name: str, company_name: str, token: str):
         link = f"{APP_BASE_URL}/aceitar-convite?token={token}"
 

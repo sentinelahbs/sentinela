@@ -6,8 +6,10 @@ from database import get_db
 from models import User, Company, Store, UserRole
 from schemas import LoginIn, TokenOut, SignupIn, SignupOut
 from auth import verify_password, hash_password, create_access_token
+from email_client import EmailClient
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
+email_client = EmailClient()
 
 
 @router.post("/signup", response_model=SignupOut)
@@ -44,6 +46,17 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     db.refresh(store)
+
+    try:
+        email_client.send_welcome_email(
+            to_email=user.email,
+            owner_name=user.name,
+            company_name=company.name,
+        )
+    except Exception as exc:
+        # Não falha o cadastro se o provedor de email tiver soluço — a
+        # conta já foi criada. Só loga o erro.
+        print(f"[auth] Falha ao enviar email de boas-vindas: {exc}")
 
     token = create_access_token(user_id=user.id, company_id=company.id)
     return SignupOut(access_token=token, store_id=store.id, store_edge_api_key=store.edge_api_key)

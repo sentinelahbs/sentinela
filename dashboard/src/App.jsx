@@ -128,12 +128,10 @@ function AuthShell({ children, width = 320 }) {
         fontFamily: "'IBM Plex Sans', sans-serif",
         background: COLORS.bg,
         color: COLORS.text,
-        minHeight: 640,
+        minHeight: "100dvh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        borderRadius: 12,
-        border: `1px solid ${COLORS.border}`,
       }}
     >
       <style>{globalFonts}</style>
@@ -946,7 +944,7 @@ function Dashboard({ token, onLogout }) {
   const showEmptyState = !loadingStores && stores.length === 0;
 
   return (
-    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: COLORS.bg, color: COLORS.text, minHeight: 640, display: "flex", borderRadius: 12, overflow: "hidden", border: `1px solid ${COLORS.border}` }}>
+    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: COLORS.bg, color: COLORS.text, minHeight: "100dvh", display: "flex", overflow: "hidden" }}>
       <style>{globalFonts}</style>
 
       <div style={{ width: 208, flexShrink: 0, background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, padding: "20px 14px", display: "flex", flexDirection: "column" }}>

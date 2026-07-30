@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 import secrets
 
 from database import get_db
 from models import User, Company, Store, UserRole
+from rate_limit import limiter
 from schemas import LoginIn, TokenOut, SignupIn, SignupOut
 from auth import verify_password, hash_password, create_access_token
 from email_client import EmailClient
@@ -13,7 +14,8 @@ email_client = EmailClient()
 
 
 @router.post("/signup", response_model=SignupOut)
-def signup(payload: SignupIn, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def signup(request: Request, payload: SignupIn, db: Session = Depends(get_db)):
     """Onboarding de um novo cliente do SaaS: cria a empresa, a primeira
     loja (com sua própria API key pra box de detecção) e o usuário owner,
     tudo numa única chamada — é o que alimenta a tela de cadastro."""
@@ -63,7 +65,8 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenOut)
-def login(payload: LoginIn, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email ou senha inválidos")

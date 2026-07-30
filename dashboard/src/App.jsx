@@ -8,6 +8,7 @@ import {
   XCircle,
   TrendingDown,
   Bell,
+  BellOff,
   Plus,
   Circle,
   Eye,
@@ -914,7 +915,12 @@ function Dashboard({ token, onLogout }) {
   const [error, setError] = useState(null);
   const [showAddStore, setShowAddStore] = useState(false);
   const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team"
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("vigia_sound_enabled") !== "false");
   const knownAlertIdsRef = useRef(null); // null = ainda não fez a primeira carga
+
+  useEffect(() => {
+    localStorage.setItem("vigia_sound_enabled", soundEnabled ? "true" : "false");
+  }, [soundEnabled]);
 
   useEffect(() => {
     api("/v1/stores")
@@ -941,7 +947,7 @@ function Dashboard({ token, onLogout }) {
         const hasNewPending = merged.some(
           (a) => a.status === "pending" && !knownAlertIdsRef.current.has(a.id)
         );
-        if (hasNewPending) playAlertSound();
+        if (hasNewPending && soundEnabled) playAlertSound();
       }
       knownAlertIdsRef.current = new Set(merged.map((a) => a.id));
 
@@ -952,7 +958,7 @@ function Dashboard({ token, onLogout }) {
     } finally {
       setLoadingAlerts(false);
     }
-  }, [api, stores, selectedStore]);
+  }, [api, stores, selectedStore, soundEnabled]);
 
   useEffect(() => {
     // Troca de loja não deve soar como "alerta novo" — reseta a base de
@@ -1047,7 +1053,16 @@ function Dashboard({ token, onLogout }) {
           Equipe
         </button>
 
-        <button className="lp-btn" onClick={onLogout} style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: "transparent", color: COLORS.textFaint, fontSize: 12.5, textAlign: "left" }}>
+        <button
+          className="lp-btn"
+          onClick={() => setSoundEnabled((prev) => !prev)}
+          style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: "transparent", color: COLORS.textFaint, fontSize: 12.5, textAlign: "left" }}
+        >
+          {soundEnabled ? <Bell size={13} /> : <BellOff size={13} />}
+          {soundEnabled ? "Som de alerta ligado" : "Som de alerta desligado"}
+        </button>
+
+        <button className="lp-btn" onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: "transparent", color: COLORS.textFaint, fontSize: 12.5, textAlign: "left" }}>
           <LogOut size={13} />
           Sair
         </button>

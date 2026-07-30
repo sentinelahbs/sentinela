@@ -27,6 +27,15 @@ EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "VigIA")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:5173")
 
 
+LOGO_HTML = """
+<div style="text-align:center; padding: 20px 0 24px; border-bottom: 1px solid #eee; margin-bottom: 24px;">
+  <span style="font-family: sans-serif; font-size: 22px; font-weight: 700; color:#171A21; letter-spacing: -0.01em;">
+    🛡️ vig<span style="color:#B9790E;">IA</span>
+  </span>
+</div>
+"""
+
+
 class EmailClient:
     def send(self, to_email: str, subject: str, html_body: str, text_body: str):
         msg = MIMEMultipart("alternative")
@@ -47,6 +56,7 @@ class EmailClient:
 
         html_body = f"""
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          {LOGO_HTML}
           <p>Olá, {owner_name},</p>
           <p>Sua conta e a primeira loja da <strong>{company_name}</strong> já
           estão prontas no VigIA.</p>
@@ -80,6 +90,7 @@ class EmailClient:
 
         html_body = f"""
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          {LOGO_HTML}
           <p>Olá, {invited_name},</p>
           <p>Você foi convidado(a) para acessar o painel de monitoramento da
           <strong>{company_name}</strong> no VigIA.</p>

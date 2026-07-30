@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   ShieldAlert,
   Camera,
@@ -875,6 +875,33 @@ function TeamPanel({ api, stores }) {
   );
 }
 
+// Bipe de dois tons pra novo alerta pendente — gerado na hora via Web Audio,
+// sem depender de um arquivo de áudio.
+function playAlertSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    [880, 660].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      const start = now + i * 0.18;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.3, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.2);
+    });
+  } catch (e) {
+    // Web Audio bloqueado ou indisponível — segue sem som, não quebra o painel.
+  }
+}
+
+const ALERTS_POLL_INTERVAL_MS = 15000;
+
 function Dashboard({ token, onLogout }) {
   const api = useApiClient(token, onLogout);
 
@@ -887,6 +914,7 @@ function Dashboard({ token, onLogout }) {
   const [error, setError] = useState(null);
   const [showAddStore, setShowAddStore] = useState(false);
   const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team"
+  const knownAlertIdsRef = useRef(null); // null = ainda não fez a primeira carga
 
   useEffect(() => {
     api("/v1/stores")
@@ -908,6 +936,15 @@ function Dashboard({ token, onLogout }) {
       const targetStores = selectedStore === "all" ? stores.map((s) => s.id) : [selectedStore];
       const results = await Promise.all(targetStores.map((id) => api(`/v1/stores/${id}/alerts`)));
       const merged = results.flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      if (knownAlertIdsRef.current) {
+        const hasNewPending = merged.some(
+          (a) => a.status === "pending" && !knownAlertIdsRef.current.has(a.id)
+        );
+        if (hasNewPending) playAlertSound();
+      }
+      knownAlertIdsRef.current = new Set(merged.map((a) => a.id));
+
       setAlerts(merged);
       if (merged.length > 0) setSelectedAlertId((prev) => prev ?? merged[0].id);
     } catch (err) {
@@ -918,7 +955,18 @@ function Dashboard({ token, onLogout }) {
   }, [api, stores, selectedStore]);
 
   useEffect(() => {
+    // Troca de loja não deve soar como "alerta novo" — reseta a base de
+    // comparação antes da próxima carga.
+    knownAlertIdsRef.current = null;
+  }, [selectedStore]);
+
+  useEffect(() => {
     loadAlerts();
+  }, [loadAlerts]);
+
+  useEffect(() => {
+    const interval = setInterval(loadAlerts, ALERTS_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
   }, [loadAlerts]);
 
   async function reviewAlert(id, status) {

@@ -13,10 +13,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ .
-
-# Usuário não-root — evita rodar o processo da API como root no container
+# Usuário não-root — evita rodar o processo da API como root no container.
+# Criado antes das cópias abaixo pra poder já dar posse dos arquivos a ele
+# (alembic precisa escrever novos arquivos de migração em /migrations).
 RUN useradd --create-home appuser
+
+COPY --chown=appuser:appuser app/ .
+
+# Migrações do Alembic — copiadas como irmãs de /app (não dentro dela),
+# pra bater com o caminho relativo que migrations/env.py espera
+# (sys.path aponta pra "../app" a partir de migrations/).
+COPY --chown=appuser:appuser alembic.ini /alembic.ini
+COPY --chown=appuser:appuser migrations/ /migrations
+
 USER appuser
 
 EXPOSE 8000

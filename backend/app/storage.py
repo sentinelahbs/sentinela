@@ -7,6 +7,7 @@ Backblaze B2), sem trocar código, só a configuração.
 import os
 import uuid
 import boto3
+from botocore.client import Config
 
 BUCKET_NAME = os.environ.get("CLIPS_BUCKET", "lossprevention-clips")
 
@@ -18,6 +19,10 @@ class ClipStorage:
             endpoint_url=os.environ.get("S3_ENDPOINT_URL") or None,  # None = AWS padrão
             aws_access_key_id=os.environ.get("S3_ACCESS_KEY"),
             aws_secret_access_key=os.environ.get("S3_SECRET_KEY"),
+            region_name="auto",
+            # Cloudflare R2 só aceita URLs assinadas com SigV4 — sem isso o
+            # boto3 cai pra SigV2 (legado) e a URL gerada dá 401 no R2.
+            config=Config(signature_version="s3v4"),
         )
 
     def upload_clip(self, store_id: str, file_bytes: bytes, content_type: str) -> str:

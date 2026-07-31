@@ -46,11 +46,18 @@ const COLORS = {
   red: "#F2555A",
 };
 
+// Sombra compartilhada — dá profundidade a painéis, cartões e modais sem
+// depender de bordas mais fortes (fica sutil demais em fundo escuro sozinha).
+const SHADOW = "0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -8px rgba(0,0,0,0.55)";
+const SHADOW_SOFT = "0 1px 2px rgba(0,0,0,0.25), 0 4px 14px -6px rgba(0,0,0,0.4)";
+
 const globalFonts = `
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
   * { box-sizing: border-box; }
+  .lp-row { transition: background .12s ease, border-color .12s ease; }
   .lp-row:hover { background: ${COLORS.panelAlt} !important; }
-  .lp-btn { cursor: pointer; transition: opacity .15s ease, transform .1s ease; }
+  .lp-nav { transition: background .15s ease, color .15s ease; }
+  .lp-btn { cursor: pointer; transition: opacity .15s ease, transform .1s ease, background .15s ease, border-color .15s ease; }
   .lp-btn:hover { opacity: 0.85; }
   .lp-btn:active { transform: scale(0.97); }
   .lp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -58,6 +65,17 @@ const globalFonts = `
   .lp-scroll::-webkit-scrollbar-thumb { background: ${COLORS.border}; border-radius: 3px; }
   .lp-spin { animation: lp-spin 0.8s linear infinite; }
   @keyframes lp-spin { to { transform: rotate(360deg); } }
+  @keyframes lp-fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes lp-modal-in { from { opacity: 0; transform: scale(0.97) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  @keyframes lp-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+  .lp-fade-up { animation: lp-fade-up .25s ease both; }
+  .lp-modal-in { animation: lp-modal-in .18s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .lp-overlay-in { animation: lp-overlay-in .15s ease both; }
+  input:focus, textarea:focus { outline: none; border-color: ${COLORS.amber}; }
+  :focus-visible { outline: 2px solid ${COLORS.amber}; outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    .lp-fade-up, .lp-modal-in, .lp-overlay-in, .lp-spin { animation: none; }
+  }
 `;
 
 const inputStyle = {
@@ -68,7 +86,7 @@ const inputStyle = {
   background: COLORS.panelAlt,
   color: COLORS.text,
   fontSize: 13,
-  outline: "none",
+  transition: "border-color .15s ease",
 };
 
 function Field({ label, type, ...props }) {
@@ -136,7 +154,7 @@ function AuthShell({ children, width = 320 }) {
       }}
     >
       <style>{globalFonts}</style>
-      <div style={{ width, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 28 }}>
+      <div className="lp-fade-up" style={{ width, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 28, boxShadow: SHADOW }}>
         <div style={{ marginBottom: 22 }}>
           <Logo size={20} fontSize={16} />
         </div>
@@ -486,12 +504,12 @@ function Thumb({ status, thumbnailUrl }) {
 
 function Stat({ icon, label, value, color }) {
   return (
-    <div style={{ textAlign: "right" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, fontSize: 11, color: COLORS.textFaint, marginBottom: 3 }}>
+    <div style={{ textAlign: "right", padding: "8px 14px", borderRadius: 9, background: COLORS.panelAlt, border: `1px solid ${COLORS.borderSoft}`, minWidth: 96 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, fontSize: 10.5, color: COLORS.textFaint, marginBottom: 4, letterSpacing: "0.02em" }}>
         {icon}
         {label}
       </div>
-      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 17, fontWeight: 600, color }}>{value}</div>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color, fontVariantNumeric: "tabular-nums" }}>{value}</div>
     </div>
   );
 }
@@ -532,10 +550,12 @@ function AddStoreModal({ api, onClose, onCreated }) {
   return (
     <div
       onClick={onClose}
+      className="lp-overlay-in"
       style={{
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.55)",
+        backdropFilter: "blur(2px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -544,12 +564,14 @@ function AddStoreModal({ api, onClose, onCreated }) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="lp-modal-in"
         style={{
           width: 340,
           background: COLORS.panel,
           border: `1px solid ${COLORS.border}`,
           borderRadius: 10,
           padding: 24,
+          boxShadow: SHADOW,
         }}
       >
         {!created ? (
@@ -640,8 +662,8 @@ function InviteManagerModal({ api, stores, onClose, onInvited }) {
   }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 360, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 24 }}>
+    <div onClick={onClose} className="lp-overlay-in" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+      <div onClick={(e) => e.stopPropagation()} className="lp-modal-in" style={{ width: 360, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 24, boxShadow: SHADOW }}>
         {!result ? (
           <>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Convidar gestor</div>
@@ -1001,7 +1023,7 @@ function Dashboard({ token, onLogout }) {
     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: COLORS.bg, color: COLORS.text, minHeight: "100dvh", display: "flex", overflow: "hidden" }}>
       <style>{globalFonts}</style>
 
-      <div style={{ width: 208, flexShrink: 0, background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, padding: "20px 14px", display: "flex", flexDirection: "column" }}>
+      <div style={{ width: 208, flexShrink: 0, background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, padding: "20px 14px", display: "flex", flexDirection: "column", boxShadow: SHADOW_SOFT, zIndex: 1 }}>
         <div style={{ padding: "0 6px", marginBottom: 28 }}>
           <Logo size={20} fontSize={15} />
         </div>
@@ -1010,18 +1032,23 @@ function Dashboard({ token, onLogout }) {
           Lojas
         </div>
 
-        <button className="lp-btn" onClick={() => { setSelectedStore("all"); setActiveView("alerts"); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: selectedStore === "all" && activeView === "alerts" ? COLORS.panelAlt : "transparent", color: selectedStore === "all" && activeView === "alerts" ? COLORS.text : COLORS.textMuted, fontSize: 13, textAlign: "left", marginBottom: 2 }}>
+        <button className="lp-btn lp-nav" onClick={() => { setSelectedStore("all"); setActiveView("alerts"); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: selectedStore === "all" && activeView === "alerts" ? COLORS.panelAlt : "transparent", color: selectedStore === "all" && activeView === "alerts" ? COLORS.text : COLORS.textMuted, fontSize: 13, textAlign: "left", marginBottom: 2 }}>
           <Building2 size={14} />
           Todas as lojas
         </button>
 
-        {loadingStores && <div style={{ fontSize: 12, color: COLORS.textFaint, padding: "8px" }}>Carregando lojas…</div>}
+        {loadingStores && (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: COLORS.textFaint, padding: "8px" }}>
+            <Loader2 size={13} className="lp-spin" />
+            Carregando lojas…
+          </div>
+        )}
 
         {stores.map((store) => {
           const count = alerts.filter((a) => a.store_id === store.id && a.status === "pending").length;
           const active = selectedStore === store.id;
           return (
-            <button key={store.id} className="lp-btn" onClick={() => { setSelectedStore(store.id); setActiveView("alerts"); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: active && activeView === "alerts" ? COLORS.panelAlt : "transparent", color: active && activeView === "alerts" ? COLORS.text : COLORS.textMuted, fontSize: 13, textAlign: "left", marginBottom: 2 }}>
+            <button key={store.id} className="lp-btn lp-nav" onClick={() => { setSelectedStore(store.id); setActiveView("alerts"); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: active && activeView === "alerts" ? COLORS.panelAlt : "transparent", color: active && activeView === "alerts" ? COLORS.text : COLORS.textMuted, fontSize: 13, textAlign: "left", marginBottom: 2 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Store size={14} />
                 {store.name}
@@ -1045,7 +1072,7 @@ function Dashboard({ token, onLogout }) {
         </button>
 
         <button
-          className="lp-btn"
+          className="lp-btn lp-nav"
           onClick={() => setActiveView("team")}
           style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: activeView === "team" ? COLORS.panelAlt : "transparent", color: activeView === "team" ? COLORS.text : COLORS.textFaint, fontSize: 12.5, textAlign: "left", marginTop: 12 }}
         >
@@ -1078,7 +1105,7 @@ function Dashboard({ token, onLogout }) {
                   {loadingAlerts ? "Atualizando…" : `${alerts.length} evento(s)`}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 20 }}>
+              <div style={{ display: "flex", gap: 10 }}>
                 <Stat icon={<Bell size={14} color={COLORS.amber} />} label="Pendentes" value={pendingCount} color={COLORS.amber} />
                 <Stat icon={<ShieldAlert size={14} color={COLORS.red} />} label="Confirmados" value={confirmedCount} color={COLORS.red} />
                 <Stat icon={<TrendingDown size={14} color={COLORS.teal} />} label="Taxa de falso positivo" value={`${falsePositiveRate}%`} color={COLORS.teal} />
@@ -1097,14 +1124,19 @@ function Dashboard({ token, onLogout }) {
         {activeView === "team" ? (
           <TeamPanel api={api} stores={stores} />
         ) : showEmptyState ? (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.textFaint, fontSize: 13 }}>
-            Nenhuma loja cadastrada ainda.
+          <div className="lp-fade-up" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: COLORS.textFaint }}>
+            <Building2 size={28} color={COLORS.textFaint} style={{ opacity: 0.6 }} />
+            <div style={{ fontSize: 13.5, color: COLORS.textMuted }}>Nenhuma loja cadastrada ainda</div>
+            <div style={{ fontSize: 12, maxWidth: 240, textAlign: "center", lineHeight: 1.5 }}>Adicione sua primeira loja pra começar a receber alertas.</div>
           </div>
         ) : (
           <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
             <div className="lp-scroll" style={{ width: 340, flexShrink: 0, borderRight: `1px solid ${COLORS.border}`, overflowY: "auto", padding: "10px 0" }}>
               {!loadingAlerts && alerts.length === 0 && (
-                <div style={{ padding: 24, color: COLORS.textFaint, fontSize: 13, textAlign: "center" }}>Nenhum alerta por aqui.</div>
+                <div className="lp-fade-up" style={{ padding: "40px 24px", color: COLORS.textFaint, fontSize: 13, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                  <ShieldAlert size={24} color={COLORS.textFaint} style={{ opacity: 0.5 }} />
+                  <span>Nenhum alerta por aqui — tudo tranquilo.</span>
+                </div>
               )}
               {alerts.map((alert) => {
                 const store = stores.find((s) => s.id === alert.store_id);
@@ -1129,8 +1161,8 @@ function Dashboard({ token, onLogout }) {
 
             <div style={{ flex: 1, padding: 22, overflowY: "auto" }} className="lp-scroll">
               {selectedAlert ? (
-                <>
-                  <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 10, background: "#000", border: `1px solid ${COLORS.border}`, overflow: "hidden", marginBottom: 18 }}>
+                <div key={selectedAlert.id} className="lp-fade-up">
+                  <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 10, background: "#000", border: `1px solid ${COLORS.border}`, overflow: "hidden", marginBottom: 18, boxShadow: SHADOW }}>
                     {selectedAlert.clip_url ? (
                       <video key={selectedAlert.id} src={selectedAlert.clip_url} controls style={{ width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />
                     ) : (
@@ -1180,9 +1212,12 @@ function Dashboard({ token, onLogout }) {
                       </div>
                     )}
                   </div>
-                </>
+                </div>
               ) : (
-                <div style={{ color: COLORS.textFaint, fontSize: 13 }}>{loadingAlerts ? "Carregando alertas…" : "Nenhum alerta selecionado."}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: COLORS.textFaint, fontSize: 13 }}>
+                  {loadingAlerts && <Loader2 size={14} className="lp-spin" />}
+                  {loadingAlerts ? "Carregando alertas…" : "Nenhum alerta selecionado."}
+                </div>
               )}
             </div>
           </div>

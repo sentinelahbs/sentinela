@@ -11,6 +11,7 @@ app chama só `EmailClient.send_invite_email(...)`, a troca fica
 isolada aqui.
 """
 
+import html
 import os
 import requests
 
@@ -59,11 +60,17 @@ class EmailClient:
     def send_welcome_email(self, to_email: str, owner_name: str, company_name: str):
         subject = f"Bem-vindo(a) ao VigIA, {owner_name}"
 
+        # Nome do dono da conta e da empresa vêm do cadastro do próprio
+        # cliente — escapamos antes de colocar no HTML pra evitar que
+        # alguém injete tags/estilo no email (o texto puro não precisa).
+        safe_owner_name = html.escape(owner_name)
+        safe_company_name = html.escape(company_name)
+
         html_body = f"""
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
           {LOGO_HTML}
-          <p>Olá, {owner_name},</p>
-          <p>Sua conta e a primeira loja da <strong>{company_name}</strong> já
+          <p>Olá, {safe_owner_name},</p>
+          <p>Sua conta e a primeira loja da <strong>{safe_company_name}</strong> já
           estão prontas no VigIA.</p>
           <p style="margin: 24px 0;">
             <a href="{APP_BASE_URL}"
@@ -93,12 +100,15 @@ class EmailClient:
 
         subject = f"Você foi convidado(a) para a {company_name} no VigIA"
 
+        safe_invited_name = html.escape(invited_name)
+        safe_company_name = html.escape(company_name)
+
         html_body = f"""
         <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
           {LOGO_HTML}
-          <p>Olá, {invited_name},</p>
+          <p>Olá, {safe_invited_name},</p>
           <p>Você foi convidado(a) para acessar o painel de monitoramento da
-          <strong>{company_name}</strong> no VigIA.</p>
+          <strong>{safe_company_name}</strong> no VigIA.</p>
           <p style="margin: 24px 0;">
             <a href="{link}"
                style="background:#F2A93B;color:#1a1200;padding:10px 18px;

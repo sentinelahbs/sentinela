@@ -219,6 +219,9 @@ function LoginScreen({ onLogin, onGoToSignup }) {
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("Muitas tentativas seguidas — aguarde um minuto e tente de novo.");
+        }
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || "Email ou senha inválidos");
       }
@@ -291,6 +294,9 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
         body: JSON.stringify(form),
       });
       if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("Muitas tentativas seguidas — aguarde um minuto e tente de novo.");
+        }
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || "Não foi possível criar a conta");
       }

@@ -35,6 +35,14 @@ app.include_router(team.router)
 app.include_router(team.invite_router)
 
 
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+
 @app.on_event("startup")
 def on_startup():
     # Em produção, o schema é gerenciado pelo Alembic (ver migrations/ e

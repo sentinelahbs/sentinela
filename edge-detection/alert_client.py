@@ -26,14 +26,21 @@ class AlertClient:
         thumbnail_bytes: "bytes | None",
     ):
         url = f"{self.api_base_url}/v1/stores/{self.store_id}/alerts"
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        # O backend autentica a box por uma API key própria da loja, num
+        # header X-API-Key — diferente do Bearer JWT usado pelo login do
+        # gestor no dashboard (ver get_store_from_edge_key no backend).
+        headers = {"X-API-Key": self.api_key}
 
         data = {
-            "camera_id": camera_id,
             "camera_label": camera_label,
             "confidence": confidence,
             "reason": reason,
         }
+        # camera_id não é enviado de propósito: no backend é FK pra uma
+        # linha real na tabela "cameras", e ainda não existe fluxo de
+        # cadastro de câmera por loja — mandar qualquer valor aqui (ex:
+        # "cam03" do config.py) quebra a inserção por violar a chave
+        # estrangeira. O campo é opcional no backend (fica None).
         files = {"clip": open(clip_path, "rb")}
         if thumbnail_bytes:
             files["thumbnail"] = ("thumb.jpg", thumbnail_bytes, "image/jpeg")

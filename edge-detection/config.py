@@ -7,6 +7,7 @@ uma regra genérica "uma pra todas as câmeras", que na prática gera
 excesso de falso positivo.
 """
 
+import os
 from dataclasses import dataclass, field
 
 
@@ -37,16 +38,18 @@ class StoreConfig:
 
 
 # Exemplo de configuração — na prática isso viria de um arquivo YAML/JSON
-# carregado por loja, não hardcoded.
+# carregado por loja, não hardcoded. Os 3 dados sensíveis (chave da loja,
+# id da loja, endereço do backend) vêm de variável de ambiente — nunca
+# hardcoded aqui, pra não ir parar no repositório por engano.
 EXAMPLE_STORE = StoreConfig(
-    store_id="s1",
-    api_base_url="https://api.suaempresa.com.br",
-    api_key="TROCAR_PELA_CHAVE_REAL_DA_LOJA",
+    store_id=os.environ.get("STORE_ID", "s1"),
+    api_base_url=os.environ.get("STORE_API_BASE_URL", "https://api.suaempresa.com.br"),
+    api_key=os.environ.get("STORE_API_KEY", "TROCAR_PELA_CHAVE_REAL_DA_LOJA"),
     cameras=[
         CameraConfig(
             camera_id="cam03",
             label="Câmera 03 — Corredor 2",
-            source="rtsp://usuario:senha@192.168.0.50:554/stream1",
+            source=os.environ.get("CAMERA_SOURCE", "rtsp://usuario:senha@192.168.0.50:554/stream1"),
             zone_of_interest=[(0.1, 0.35), (0.9, 0.35), (0.9, 0.98), (0.1, 0.98)],
             # Calibrado pra CPU sem GPU: nesse hardware o YOLOX+MediaPipe
             # processam ~1-1.5 frame/s, bem abaixo dos 30fps assumidos no

@@ -41,7 +41,14 @@ class AlertClient:
         # cadastro de câmera por loja — mandar qualquer valor aqui (ex:
         # "cam03" do config.py) quebra a inserção por violar a chave
         # estrangeira. O campo é opcional no backend (fica None).
-        files = {"clip": open(clip_path, "rb")}
+        # Lê o clipe como bytes e manda como tupla explícita (nome, bytes,
+        # content-type) em vez de passar o arquivo aberto direto — passado
+        # cru, o requests monta a parte multipart de um jeito que o backend
+        # rejeita com 500 (mesmo conteúdo, mesmo content-type — só a forma
+        # de montar o multipart muda). Testado e confirmado nos dois formatos.
+        with open(clip_path, "rb") as f:
+            clip_bytes = f.read()
+        files = {"clip": ("clip.mp4", clip_bytes, "video/mp4")}
         if thumbnail_bytes:
             files["thumbnail"] = ("thumb.jpg", thumbnail_bytes, "image/jpeg")
 
@@ -57,5 +64,3 @@ class AlertClient:
             # a internet caiu por 30 segundos.
             print(f"[AlertClient] Falha ao enviar alerta, será reenfileirado: {exc}")
             return None
-        finally:
-            files["clip"].close()

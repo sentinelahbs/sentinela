@@ -1,15 +1,21 @@
+import logging
 import os
+import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import text
 
-from database import engine
+from database import engine, SessionLocal
 from models import Base
 from rate_limit import limiter
 from routers import alerts, auth, stores, team
+
+logger = logging.getLogger("vigia")
 
 app = FastAPI(title="Loss Prevention API", version="0.1.0")
 
@@ -43,6 +49,27 @@ async def security_headers(request, call_next):
     return response
 
 
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    # ID único por requisição — permite achar nos logs exatamente o que
+    # aconteceu num pedido específico, mesmo sem ver o stack trace na hora.
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.exception(f"[{request_id}] Erro não tratado em {request.method} {request.url.path}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erro interno do servidor", "request_id": request_id},
+    )
+
+
 @app.on_event("startup")
 def on_startup():
     # Em produção, o schema é gerenciado pelo Alembic (ver migrations/ e
@@ -55,4 +82,15 @@ def on_startup():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    checks = {"database": "ok"}
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+    except Exception:
+        checks["database"] = "erro"
+
+    overall = "ok" if all(v == "ok" for v in checks.values()) else "degraded"
+    return {"status": overall, "checks": checks}

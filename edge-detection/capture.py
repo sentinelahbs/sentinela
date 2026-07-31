@@ -23,8 +23,13 @@ class RollingCapture:
     def open(self):
         # cv2.VideoCapture trata string como caminho/URL — um índice de webcam
         # (ex: "0") só é reconhecido como câmera se for passado como int.
-        source = int(self.source) if str(self.source).isdigit() else self.source
-        self._cap = cv2.VideoCapture(source)
+        if str(self.source).isdigit():
+            # No Windows, o backend padrão (MSMF) falha em ler frames com
+            # alguns drivers de webcam (erro silencioso, sem lançar exceção —
+            # só cap.read() nunca retorna sucesso). DSHOW é o workaround usual.
+            self._cap = cv2.VideoCapture(int(self.source), cv2.CAP_DSHOW)
+        else:
+            self._cap = cv2.VideoCapture(self.source)
         if not self._cap.isOpened():
             raise RuntimeError(f"Não foi possível abrir o stream: {self.source}")
         return self
@@ -52,6 +57,15 @@ class RollingCapture:
     def snapshot_buffer(self):
         """Retorna uma cópia da janela de pré-evento no momento do alerta."""
         return list(self.buffer)
+
+    def get_frame_size(self):
+        """(largura, altura) reais entregues pela câmera — pode não bater com
+        nenhum valor "padrão" assumido de fora, então quem for normalizar
+        coordenadas (0-1) deve sempre consultar isto, nunca supor um tamanho fixo."""
+        return (
+            int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        )
 
     def close(self):
         if self._cap is not None:

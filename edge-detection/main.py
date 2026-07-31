@@ -10,6 +10,7 @@ Quando a regra dispara: grava o clipe (pré + pós evento) e envia pro
 backend, que é o mesmo que alimenta o dashboard já construído.
 """
 
+import os
 import time
 import logging
 
@@ -27,6 +28,10 @@ log = logging.getLogger("edge-detection")
 # no mesmo lugar — sem isso, uma pessoa parada 30s geraria vários alertas.
 COOLDOWN_SECONDS = 60
 
+# DETECTION_DEBUG=1: loga o que a pipeline está vendo a cada frame (pessoas,
+# posição da mão). Usar só pra calibrar/depurar — em produção deixar desligado.
+DETECTION_DEBUG = os.environ.get("DETECTION_DEBUG", "0") == "1"
+
 
 def run_camera(store_cfg, camera_cfg):
     log.info(f"Iniciando câmera: {camera_cfg.label} (backend de detecção: {DETECTION_BACKEND})")
@@ -37,7 +42,10 @@ def run_camera(store_cfg, camera_cfg):
         pre_event_seconds=store_cfg.pre_event_seconds,
     ).open()
 
-    perception = PerceptionPipeline(frame_size=(1280, 720))
+    # Usa a resolução real entregue pela câmera, não um valor fixo — câmeras
+    # diferentes (webcam de notebook, câmera IP) capturam em tamanhos diferentes,
+    # e normalizar com o tamanho errado faz a checagem de zona nunca bater.
+    perception = PerceptionPipeline(frame_size=capture.get_frame_size())
     rule = SuspiciousBehaviorRule(
         zone_points=camera_cfg.zone_of_interest,
         still_frames_threshold=camera_cfg.hand_still_frames_threshold,
@@ -54,6 +62,15 @@ def run_camera(store_cfg, camera_cfg):
     try:
         for ts, frame in capture.frames():
             signals = perception.process(frame)
+
+            if DETECTION_DEBUG:
+                if not signals:
+                    log.info("debug: nenhuma pessoa detectada neste frame")
+                for i, s in enumerate(signals):
+                    log.info(
+                        f"debug: pessoa_{i} conf={s.confidence:.2f} "
+                        f"bbox={s.person_bbox} maos_norm={s.hands_norm}"
+                    )
 
             for i, signal in enumerate(signals):
                 # Nota: em produção, usar um tracker real (ex: ByteTrack) pra

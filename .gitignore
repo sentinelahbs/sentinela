@@ -7,6 +7,11 @@ backend/app/__pycache__/
 backend/app/**/__pycache__/
 edge-detection/__pycache__/
 *.pyc
+edge-detection/.venv/
+
+# Modelos de detecção (arquivos grandes — baixados sob demanda, não versionados)
+edge-detection/models/*.onnx
+edge-detection/*.pt
 
 # Node / Vite
 dashboard/node_modules/

@@ -15,7 +15,7 @@ import logging
 
 from config import EXAMPLE_STORE
 from capture import RollingCapture
-from detector import PerceptionPipeline
+from detector import PerceptionPipeline, DETECTION_BACKEND
 from pose_rules import SuspiciousBehaviorRule
 from clip_recorder import ClipRecorder
 from alert_client import AlertClient
@@ -29,7 +29,7 @@ COOLDOWN_SECONDS = 60
 
 
 def run_camera(store_cfg, camera_cfg):
-    log.info(f"Iniciando câmera: {camera_cfg.label}")
+    log.info(f"Iniciando câmera: {camera_cfg.label} (backend de detecção: {DETECTION_BACKEND})")
 
     capture = RollingCapture(
         source=camera_cfg.source,

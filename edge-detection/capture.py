@@ -21,7 +21,10 @@ class RollingCapture:
         self._cap = None
 
     def open(self):
-        self._cap = cv2.VideoCapture(self.source)
+        # cv2.VideoCapture trata string como caminho/URL — um índice de webcam
+        # (ex: "0") só é reconhecido como câmera se for passado como int.
+        source = int(self.source) if str(self.source).isdigit() else self.source
+        self._cap = cv2.VideoCapture(source)
         if not self._cap.isOpened():
             raise RuntimeError(f"Não foi possível abrir o stream: {self.source}")
         return self

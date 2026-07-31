@@ -1,5 +1,6 @@
 opencv-python==4.10.0.84
 ultralytics==8.3.28
+onnxruntime==1.19.2
 mediapipe==0.10.18
 shapely==2.0.6
 requests==2.32.3

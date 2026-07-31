@@ -6,14 +6,27 @@ Importante: isso NÃO decide sozinho o que é roubo. Ele só extrai sinais
 A decisão de "isso é suspeito" fica na camada de regras (pose_rules.py),
 que é separada de propósito — assim você consegue ajustar a sensibilidade
 sem precisar retreinar nada.
+
+Backend de detecção de pessoa (escolhido por DETECTION_BACKEND):
+  - "yolov8" (padrão): Ultralytics YOLOv8. Licença AGPL-3.0 — usar em
+    produto comercial de código fechado exige Enterprise License paga.
+  - "yolox": YOLOX (Megvii), rodando via ONNX Runtime. Licença Apache 2.0,
+    sem essa exigência. Usar DETECTION_MODEL_PATH pra apontar pro .onnx
+    baixado das releases oficiais do GitHub.
 """
 
+import os
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 import mediapipe as mp
+
+DETECTION_BACKEND = os.environ.get("DETECTION_BACKEND", "yolov8").lower()
+DETECTION_MODEL_PATH = os.environ.get("DETECTION_MODEL_PATH", "")
+
+# Classe "person" no COCO — dataset usado pra treinar tanto o YOLOv8 quanto o YOLOX.
+COCO_PERSON_CLASS_ID = 0
 
 
 @dataclass
@@ -24,17 +37,19 @@ class PersonSignal:
     confidence: float
 
 
-class PersonDetector:
+class PersonDetectorYoloV8:
     """Detecta pessoas no quadro com YOLOv8 (modelo pré-treinado, não precisamos
     treinar do zero — 'person' já é uma das classes padrão do COCO)."""
 
     def __init__(self, model_path: str = "yolov8n.pt", person_conf: float = 0.5):
+        from ultralytics import YOLO  # import tardio: só carrega esse peso se este backend for usado
+
         self.model = YOLO(model_path)
         self.person_conf = person_conf
 
     def detect_people(self, frame: np.ndarray):
         results = self.model.predict(
-            frame, classes=[0], conf=self.person_conf, verbose=False
+            frame, classes=[COCO_PERSON_CLASS_ID], conf=self.person_conf, verbose=False
         )[0]
         boxes = []
         for box in results.boxes:
@@ -42,6 +57,122 @@ class PersonDetector:
             conf = float(box.conf[0])
             boxes.append(((int(x1), int(y1), int(x2), int(y2)), conf))
         return boxes
+
+
+class PersonDetectorYoloX:
+    """Detecta pessoas com YOLOX (Megvii), via ONNX Runtime — sem a exigência
+    de licença comercial que o YOLOv8/Ultralytics (AGPL-3.0) tem.
+
+    Espera o export .onnx oficial do repositório Megvii-BaseDetection/YOLOX
+    (ex: yolox_s.onnx, entrada 640x640). O pré/pós-processamento aqui segue
+    o mesmo formato do demo oficial de ONNX Runtime do YOLOX.
+    """
+
+    INPUT_SIZE = (640, 640)
+    STRIDES = (8, 16, 32)
+
+    def __init__(self, model_path: str, person_conf: float = 0.5, nms_thr: float = 0.45):
+        import onnxruntime as ort
+
+        self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        self.input_name = self.session.get_inputs()[0].name
+        self.person_conf = person_conf
+        self.nms_thr = nms_thr
+
+    def _preprocess(self, frame: np.ndarray):
+        ih, iw = self.INPUT_SIZE
+        padded = np.ones((ih, iw, 3), dtype=np.uint8) * 114
+        r = min(ih / frame.shape[0], iw / frame.shape[1])
+        resized = cv2.resize(
+            frame,
+            (int(frame.shape[1] * r), int(frame.shape[0] * r)),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        padded[: resized.shape[0], : resized.shape[1]] = resized
+        img = padded.transpose(2, 0, 1)[None, :, :, :].astype(np.float32)
+        return np.ascontiguousarray(img), r
+
+    def _decode(self, outputs: np.ndarray):
+        # Saída do YOLOX é "anchor-free": cada célula do grid já prevê
+        # diretamente um box (dx, dy, w, h) relativo a si mesma, em vez de
+        # ajustar anchors pré-definidas — por isso somamos a posição do
+        # grid e multiplicamos pelo stride pra voltar à escala de pixels.
+        grids, strides_arr = [], []
+        ih, iw = self.INPUT_SIZE
+        for stride in self.STRIDES:
+            h, w = ih // stride, iw // stride
+            xv, yv = np.meshgrid(np.arange(w), np.arange(h))
+            grid = np.stack((xv, yv), 2).reshape(1, -1, 2)
+            grids.append(grid)
+            strides_arr.append(np.full((1, grid.shape[1], 1), stride))
+
+        grids = np.concatenate(grids, 1)
+        strides_arr = np.concatenate(strides_arr, 1)
+
+        outputs[..., :2] = (outputs[..., :2] + grids) * strides_arr
+        outputs[..., 2:4] = np.exp(outputs[..., 2:4]) * strides_arr
+        return outputs
+
+    def _nms(self, boxes: np.ndarray, scores: np.ndarray):
+        x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        order = scores.argsort()[::-1]
+        keep = []
+        while order.size > 0:
+            i = order[0]
+            keep.append(i)
+            xx1 = np.maximum(x1[i], x1[order[1:]])
+            yy1 = np.maximum(y1[i], y1[order[1:]])
+            xx2 = np.minimum(x2[i], x2[order[1:]])
+            yy2 = np.minimum(y2[i], y2[order[1:]])
+            w = np.maximum(0.0, xx2 - xx1 + 1)
+            h = np.maximum(0.0, yy2 - yy1 + 1)
+            inter = w * h
+            ovr = inter / (areas[i] + areas[order[1:]] - inter)
+            order = order[np.where(ovr <= self.nms_thr)[0] + 1]
+        return keep
+
+    def detect_people(self, frame: np.ndarray):
+        img, r = self._preprocess(frame)
+        outputs = self.session.run(None, {self.input_name: img})[0]
+        outputs = self._decode(outputs)[0]
+
+        boxes_xywh = outputs[:, :4]
+        obj_conf = outputs[:, 4]
+        class_scores = outputs[:, 5:]
+
+        person_scores = obj_conf * class_scores[:, COCO_PERSON_CLASS_ID]
+        mask = person_scores > self.person_conf
+        if not np.any(mask):
+            return []
+
+        boxes_xywh = boxes_xywh[mask]
+        person_scores = person_scores[mask]
+
+        boxes_xyxy = np.ones_like(boxes_xywh)
+        boxes_xyxy[:, 0] = boxes_xywh[:, 0] - boxes_xywh[:, 2] / 2
+        boxes_xyxy[:, 1] = boxes_xywh[:, 1] - boxes_xywh[:, 3] / 2
+        boxes_xyxy[:, 2] = boxes_xywh[:, 0] + boxes_xywh[:, 2] / 2
+        boxes_xyxy[:, 3] = boxes_xywh[:, 1] + boxes_xywh[:, 3] / 2
+        boxes_xyxy /= r  # volta da escala do input (640x640) pra escala do frame original
+
+        keep = self._nms(boxes_xyxy, person_scores)
+
+        result = []
+        for i in keep:
+            x1, y1, x2, y2 = boxes_xyxy[i]
+            result.append(((int(x1), int(y1), int(x2), int(y2)), float(person_scores[i])))
+        return result
+
+
+def build_person_detector(model_path: str = None, person_conf: float = 0.5):
+    """Escolhe o backend de detecção de pessoa pela variável de ambiente
+    DETECTION_BACKEND ('yolov8', padrão, ou 'yolox')."""
+    if DETECTION_BACKEND == "yolox":
+        path = model_path or DETECTION_MODEL_PATH or "./models/yolox_s.onnx"
+        return PersonDetectorYoloX(path, person_conf=person_conf)
+    path = model_path or DETECTION_MODEL_PATH or "yolov8n.pt"
+    return PersonDetectorYoloV8(path, person_conf=person_conf)
 
 
 class HandPoseEstimator:
@@ -92,9 +223,9 @@ class HandPoseEstimator:
 class PerceptionPipeline:
     """Junta detecção de pessoa + pose num único passo por frame."""
 
-    def __init__(self, frame_size: tuple, model_path: str = "yolov8n.pt"):
+    def __init__(self, frame_size: tuple, model_path: str = None):
         self.frame_w, self.frame_h = frame_size
-        self.person_detector = PersonDetector(model_path)
+        self.person_detector = build_person_detector(model_path)
         self.pose_estimator = HandPoseEstimator()
 
     def process(self, frame: np.ndarray):

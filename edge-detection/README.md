@@ -12,13 +12,40 @@ A decisão final é sempre humana, feita no dashboard.
 
 ```
 capture.py        → lê o stream RTSP da câmera, mantém buffer de pré-evento
-detector.py        → detecta pessoas (YOLOv8) + posição das mãos (MediaPipe Pose)
+detector.py        → detecta pessoas (YOLOv8 ou YOLOX) + posição das mãos (MediaPipe Pose)
 pose_rules.py       → decide se o padrão observado é "suspeito" (heurística, não IA treinada)
 clip_recorder.py    → grava o clipe (antes + depois do evento) e gera thumbnail
 alert_client.py     → envia o evento pro backend (mesmo que alimenta o dashboard)
 main.py             → orquestra tudo, um processo por câmera
 config.py           → configuração por loja e por câmera (zona de interesse, thresholds)
 ```
+
+## Backend de detecção de pessoa: YOLOv8 vs YOLOX
+
+O `detector.py` suporta dois backends, escolhidos pela variável de ambiente
+`DETECTION_BACKEND`:
+
+- **`yolov8`** (padrão) — Ultralytics YOLOv8. **Licença AGPL-3.0**: usar em
+  produto comercial de código fechado exige uma Enterprise License paga da
+  Ultralytics.
+- **`yolox`** — YOLOX (Megvii), rodando via ONNX Runtime. **Licença Apache
+  2.0**, sem essa exigência. Use este backend pra testar em loja parceira
+  antes de resolver o licenciamento do YOLOv8.
+
+```bash
+# Windows (PowerShell)
+$env:DETECTION_BACKEND = "yolox"
+$env:DETECTION_MODEL_PATH = "./models/yolox_s.onnx"
+
+# Linux/Mac
+export DETECTION_BACKEND=yolox
+export DETECTION_MODEL_PATH=./models/yolox_s.onnx
+```
+
+O modelo `.onnx` não fica versionado no repositório (arquivo grande, baixado
+sob demanda). Baixe o `yolox_s.onnx` das releases oficiais do GitHub
+(Megvii-BaseDetection/YOLOX → Releases → ONNX Model) e salve em
+`edge-detection/models/yolox_s.onnx`.
 
 ## Por que regras, e não um modelo treinado do zero
 
@@ -36,8 +63,15 @@ por câmera sem re-treinamento.
 
 ## Rodando localmente (teste com webcam)
 
+Use **Python 3.12** (ou entre 3.9 e 3.12) — numpy/mediapipe/onnxruntime ainda
+não têm pacote pronto pra versões mais novas do Python, e instalar do zero
+exige compilador C, que normalmente não está disponível. Recomendado usar
+um ambiente virtual dedicado:
+
 ```bash
-pip install -r requirements.txt
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt   # Windows
+# source .venv/bin/activate && pip install -r requirements.txt  # Linux/Mac
 ```
 
 Para testar sem uma câmera IP real, edite `config.py` e troque o `source`

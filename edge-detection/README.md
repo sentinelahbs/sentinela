@@ -74,22 +74,42 @@ py -3.12 -m venv .venv
 # source .venv/bin/activate && pip install -r requirements.txt  # Linux/Mac
 ```
 
-Para testar sem uma câmera IP real, edite `config.py` e troque o `source`
-da câmera de exemplo pelo índice da sua webcam:
-
-```python
-source="0"  # webcam padrão do notebook
-```
-
-Depois:
+Para testar sem uma câmera IP real, use a variável `CAMERA_SOURCE` pra
+apontar pro índice da sua webcam, e as variáveis `STORE_*` pra mandar o
+alerta pro backend de verdade (senão usa o placeholder de exemplo):
 
 ```bash
+# Windows (PowerShell)
+$env:CAMERA_SOURCE = "0"
+$env:STORE_API_BASE_URL = "https://sua-api.com.br"
+$env:STORE_ID = "id-da-loja"
+$env:STORE_API_KEY = "chave-da-loja"
+
 python main.py
 ```
 
 Os clipes gerados ficam em `./clips`. Se o `api_base_url` não estiver
 acessível, o envio falha de forma segura (loga o erro) — o clipe local
 continua existindo.
+
+### Codec do clipe (H.264 via OpenH264)
+
+O clipe é gravado em H.264 (`avc1`) — é o único codec que os navegadores
+(Chrome, Safari, Edge) reproduzem nativamente no `<video>` do dashboard.
+O pip `opencv-python` não vem com esse codec embutido (é separado por
+licenciamento); é preciso baixar a lib da Cisco e colocar na pasta
+`edge-detection/` (mesma pasta de onde `main.py` roda):
+
+```bash
+curl -L -o openh264-1.8.0-win64.dll.bz2 https://github.com/cisco/openh264/releases/download/v1.8.0/openh264-1.8.0-win64.dll.bz2
+python -c "import bz2; open('openh264-1.8.0-win64.dll','wb').write(bz2.decompress(open('openh264-1.8.0-win64.dll.bz2','rb').read()))"
+```
+
+Sem essa lib, o clipe ainda é gravado (com outro codec, `mp4v`) e sobe
+normalmente pro backend, mas **não toca no navegador** — só percebe o
+problema ao tentar assistir. A versão da lib importa: precisa bater
+exatamente com a que o FFmpeg embutido no OpenCV está pedindo (aparece
+no erro do terminal se a versão errada for baixada).
 
 ## O que falta para produção (próximos passos)
 
@@ -98,5 +118,6 @@ continua existindo.
 - Fila local (ex: SQLite) para reenviar alertas se a internet cair
 - Um processo supervisor que reinicia a câmera automaticamente se o stream
   RTSP cair
-- Endpoint real no backend (`POST /v1/stores/{id}/alerts`) recebendo esses
-  eventos e persistindo pro dashboard já construído
+- Fluxo de cadastro de câmera por loja no dashboard (a tabela `cameras`
+  existe no backend, mas ainda não tem tela — por isso `camera_id` não é
+  enviado pelo alert_client hoje)

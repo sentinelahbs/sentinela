@@ -13,6 +13,9 @@ edge-detection/.venv/
 edge-detection/models/*.onnx
 edge-detection/*.pt
 
+# Codec H.264 (Cisco OpenH264) — baixado sob demanda, ver README
+edge-detection/openh264*.dll
+
 # Clipes gravados localmente em teste (saída, não código)
 edge-detection/clips/
 

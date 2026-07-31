@@ -28,8 +28,12 @@ class ClipRecorder:
         path = os.path.join(self.output_dir, f"{clip_id}.mp4")
 
         h, w = pre_event_frames[0][1].shape[:2]
+        # H.264 (avc1), não mp4v — mp4v é o padrão do OpenCV mas navegadores
+        # (Chrome, Safari, Edge) não conseguem reproduzir esse codec nativamente
+        # no <video>, mesmo dentro de um .mp4; o clipe subia mas não tocava no
+        # painel. Precisa da lib openh264 (ver README) pra isso funcionar.
         writer = cv2.VideoWriter(
-            path, cv2.VideoWriter_fourcc(*"mp4v"), self.fps_target, (w, h)
+            path, cv2.VideoWriter_fourcc(*"avc1"), self.fps_target, (w, h)
         )
 
         for _, frame in pre_event_frames:

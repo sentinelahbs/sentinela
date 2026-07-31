@@ -26,6 +26,7 @@ import {
   Trash2,
   Mail,
   Menu,
+  Download,
 } from "lucide-react";
 
 // Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
@@ -930,6 +931,26 @@ function playAlertSound() {
   }
 }
 
+async function downloadClip(url, filename) {
+  try {
+    // Baixa como blob em vez de usar só <a download> direto na URL —
+    // o clipe vem de outro domínio (R2), e o atributo download do link
+    // é ignorado pelo navegador pra recursos de origem diferente.
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+  } catch (e) {
+    window.open(url, "_blank");
+  }
+}
+
 const ALERTS_POLL_INTERVAL_MS = 15000;
 
 const MOBILE_BREAKPOINT_PX = 860;
@@ -1271,6 +1292,17 @@ function Dashboard({ token, onLogout }) {
                       <XCircle size={14} />
                       Marcar como falso positivo
                     </button>
+                    {selectedAlert.clip_url && (
+                      <button
+                        className="lp-btn"
+                        onClick={() => downloadClip(selectedAlert.clip_url, `vigia-${selectedAlert.camera_label}-${selectedAlert.id}.mp4`)}
+                        title="Baixar clipe"
+                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.textMuted, fontSize: 13, fontWeight: 500, marginLeft: "auto" }}
+                      >
+                        <Download size={14} />
+                        Baixar clipe
+                      </button>
+                    )}
                   </div>
 
                   <div style={{ borderTop: `1px solid ${COLORS.borderSoft}`, paddingTop: 16 }}>

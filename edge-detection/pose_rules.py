@@ -49,7 +49,11 @@ class SuspiciousBehaviorRule:
     def __init__(self, zone_points: list, still_frames_threshold: int):
         self.zone = Polygon(zone_points) if zone_points else None
         self.still_frames_threshold = still_frames_threshold
-        self.trackers = {}  # id da pessoa (aprox. por posição) -> HandTracker
+        # cada pessoa tem uma lista de trackers, um por "posição" na lista de
+        # mãos (esquerda, direita) — sem isso, quando as duas mãos aparecem
+        # no quadro, a posição de uma acabava sendo comparada com a da outra
+        # no frame seguinte, e "parada" nunca acumulava direito.
+        self.trackers = {}  # id da pessoa -> list[HandTracker]
 
     def _in_zone(self, pos_norm: tuple) -> bool:
         if self.zone is None:
@@ -58,10 +62,17 @@ class SuspiciousBehaviorRule:
 
     def evaluate(self, person_id: str, hands_norm: list):
         """Retorna (is_suspicious, confidence, reason) para uma pessoa neste frame."""
-        tracker = self.trackers.setdefault(person_id, HandTracker())
+        person_trackers = self.trackers.setdefault(person_id, [])
+        while len(person_trackers) < len(hands_norm):
+            person_trackers.append(HandTracker())
 
         best_still_count = 0
-        for hand_pos in hands_norm:
+        for slot, hand_pos in enumerate(hands_norm):
+            tracker = person_trackers[slot]
+            if hand_pos is None:
+                tracker.still_frame_count = 0
+                tracker.positions.clear()
+                continue
             in_zone = self._in_zone(hand_pos)
             tracker.update(hand_pos, in_zone)
             best_still_count = max(best_still_count, tracker.still_frame_count)

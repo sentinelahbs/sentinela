@@ -47,7 +47,12 @@ EXAMPLE_STORE = StoreConfig(
             camera_id="cam03",
             label="Câmera 03 — Corredor 2",
             source="rtsp://usuario:senha@192.168.0.50:554/stream1",
-            zone_of_interest=[(0.3, 0.4), (0.7, 0.4), (0.7, 0.9), (0.3, 0.9)],
+            zone_of_interest=[(0.1, 0.35), (0.9, 0.35), (0.9, 0.98), (0.1, 0.98)],
+            # Calibrado pra CPU sem GPU: nesse hardware o YOLOX+MediaPipe
+            # processam ~1-1.5 frame/s, bem abaixo dos 30fps assumidos no
+            # valor padrão da classe (45 frames levaria uns 30s pra
+            # acumular aqui, em vez dos ~3s pretendidos). 6 frames ~ 4-5s.
+            hand_still_frames_threshold=6,
         ),
     ],
 )

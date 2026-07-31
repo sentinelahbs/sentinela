@@ -13,6 +13,9 @@ edge-detection/.venv/
 edge-detection/models/*.onnx
 edge-detection/*.pt
 
+# Clipes gravados localmente em teste (saída, não código)
+edge-detection/clips/
+
 # Node / Vite
 dashboard/node_modules/
 dashboard/dist/

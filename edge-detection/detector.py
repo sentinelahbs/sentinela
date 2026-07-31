@@ -189,15 +189,21 @@ class HandPoseEstimator:
         )
 
     def estimate_hands(self, frame: np.ndarray, bbox: tuple):
+        # Retorna sempre 2 posições, uma por mão (esquerda, direita), usando
+        # None pra mão não visível — em vez de omitir da lista. Isso importa
+        # porque quem consome isso (pose_rules.py) rastreia cada mão
+        # separadamente ao longo dos frames; se a lista mudasse de tamanho
+        # ou ordem, a mão esquerda de um frame acabava sendo comparada com
+        # a direita do frame anterior, e "parada" nunca acumulava direito.
         x1, y1, x2, y2 = bbox
         crop = frame[max(0, y1):y2, max(0, x1):x2]
         if crop.size == 0:
-            return []
+            return [None, None]
 
         rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
         result = self.pose.process(rgb)
         if not result.pose_landmarks:
-            return []
+            return [None, None]
 
         h, w = crop.shape[:2]
         landmarks = result.pose_landmarks.landmark
@@ -209,6 +215,7 @@ class HandPoseEstimator:
         for wid in wrist_ids:
             lm = landmarks[wid]
             if lm.visibility < 0.5:
+                hands.append(None)
                 continue
             # posição da mão em pixels absolutos no frame original
             px = x1 + int(lm.x * w)
@@ -233,7 +240,8 @@ class PerceptionPipeline:
         for bbox, conf in self.person_detector.detect_people(frame):
             hands_px = self.pose_estimator.estimate_hands(frame, bbox)
             hands_norm = [
-                (px / self.frame_w, py / self.frame_h) for px, py in hands_px
+                (h[0] / self.frame_w, h[1] / self.frame_h) if h is not None else None
+                for h in hands_px
             ]
             signals.append(
                 PersonSignal(

@@ -25,6 +25,7 @@ import {
   UserPlus,
   Trash2,
   Mail,
+  Menu,
 } from "lucide-react";
 
 // Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
@@ -931,6 +932,20 @@ function playAlertSound() {
 
 const ALERTS_POLL_INTERVAL_MS = 15000;
 
+const MOBILE_BREAKPOINT_PX = 860;
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => window.innerWidth <= MOBILE_BREAKPOINT_PX
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= MOBILE_BREAKPOINT_PX);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return isMobile;
+}
+
 function Dashboard({ token, onLogout }) {
   const api = useApiClient(token, onLogout);
 
@@ -944,6 +959,9 @@ function Dashboard({ token, onLogout }) {
   const [showAddStore, setShowAddStore] = useState(false);
   const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team"
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("vigia_sound_enabled") !== "false");
+  const [showMobileNav, setShowMobileNav] = useState(false);
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
+  const isMobile = useIsMobile();
   const knownAlertIdsRef = useRef(null); // null = ainda não fez a primeira carga
 
   useEffect(() => {
@@ -1029,7 +1047,21 @@ function Dashboard({ token, onLogout }) {
     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: COLORS.bg, color: COLORS.text, minHeight: "100dvh", display: "flex", overflow: "hidden" }}>
       <style>{globalFonts}</style>
 
-      <div style={{ width: 208, flexShrink: 0, background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, padding: "20px 14px", display: "flex", flexDirection: "column", boxShadow: SHADOW_SOFT, zIndex: 1 }}>
+      {isMobile && showMobileNav && (
+        <div
+          className="lp-overlay-in"
+          onClick={() => setShowMobileNav(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 40 }}
+        />
+      )}
+
+      <div
+        style={
+          isMobile
+            ? { width: 232, flexShrink: 0, background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, padding: "20px 14px", display: "flex", flexDirection: "column", boxShadow: SHADOW_SOFT, zIndex: 50, position: "fixed", top: 0, bottom: 0, left: 0, transform: showMobileNav ? "translateX(0)" : "translateX(-100%)", transition: "transform 0.2s ease" }
+            : { width: 208, flexShrink: 0, background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, padding: "20px 14px", display: "flex", flexDirection: "column", boxShadow: SHADOW_SOFT, zIndex: 1 }
+        }
+      >
         <div style={{ padding: "0 6px", marginBottom: 28 }}>
           <Logo size={20} fontSize={15} />
         </div>
@@ -1038,7 +1070,7 @@ function Dashboard({ token, onLogout }) {
           Lojas
         </div>
 
-        <button className="lp-btn lp-nav" onClick={() => { setSelectedStore("all"); setActiveView("alerts"); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: selectedStore === "all" && activeView === "alerts" ? COLORS.panelAlt : "transparent", color: selectedStore === "all" && activeView === "alerts" ? COLORS.text : COLORS.textMuted, fontSize: 13, textAlign: "left", marginBottom: 2 }}>
+        <button className="lp-btn lp-nav" onClick={() => { setSelectedStore("all"); setActiveView("alerts"); setShowMobileNav(false); setMobileShowDetail(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: selectedStore === "all" && activeView === "alerts" ? COLORS.panelAlt : "transparent", color: selectedStore === "all" && activeView === "alerts" ? COLORS.text : COLORS.textMuted, fontSize: 13, textAlign: "left", marginBottom: 2 }}>
           <Building2 size={14} />
           Todas as lojas
         </button>
@@ -1054,7 +1086,7 @@ function Dashboard({ token, onLogout }) {
           const count = alerts.filter((a) => a.store_id === store.id && a.status === "pending").length;
           const active = selectedStore === store.id;
           return (
-            <button key={store.id} className="lp-btn lp-nav" onClick={() => { setSelectedStore(store.id); setActiveView("alerts"); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: active && activeView === "alerts" ? COLORS.panelAlt : "transparent", color: active && activeView === "alerts" ? COLORS.text : COLORS.textMuted, fontSize: 13, textAlign: "left", marginBottom: 2 }}>
+            <button key={store.id} className="lp-btn lp-nav" onClick={() => { setSelectedStore(store.id); setActiveView("alerts"); setShowMobileNav(false); setMobileShowDetail(false); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: active && activeView === "alerts" ? COLORS.panelAlt : "transparent", color: active && activeView === "alerts" ? COLORS.text : COLORS.textMuted, fontSize: 13, textAlign: "left", marginBottom: 2 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Store size={14} />
                 {store.name}
@@ -1070,7 +1102,7 @@ function Dashboard({ token, onLogout }) {
 
         <button
           className="lp-btn"
-          onClick={() => setShowAddStore(true)}
+          onClick={() => { setShowAddStore(true); setShowMobileNav(false); }}
           style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: `1px dashed ${COLORS.border}`, background: "transparent", color: COLORS.textFaint, fontSize: 12.5, textAlign: "left", marginTop: 6 }}
         >
           <Plus size={13} />
@@ -1079,7 +1111,7 @@ function Dashboard({ token, onLogout }) {
 
         <button
           className="lp-btn lp-nav"
-          onClick={() => setActiveView("team")}
+          onClick={() => { setActiveView("team"); setShowMobileNav(false); }}
           style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: activeView === "team" ? COLORS.panelAlt : "transparent", color: activeView === "team" ? COLORS.text : COLORS.textFaint, fontSize: 12.5, textAlign: "left", marginTop: 12 }}
         >
           <Users size={13} />
@@ -1101,20 +1133,35 @@ function Dashboard({ token, onLogout }) {
         </button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, width: isMobile ? "100%" : "auto" }}>
+        {isMobile && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${COLORS.border}`, background: COLORS.panel }}>
+            <button
+              onClick={() => setShowMobileNav(true)}
+              aria-label="Abrir menu"
+              style={{ background: "transparent", border: "none", color: COLORS.text, padding: 4, display: "flex", cursor: "pointer" }}
+            >
+              <Menu size={20} />
+            </button>
+            <Logo size={18} fontSize={14} />
+          </div>
+        )}
+
         {activeView === "alerts" && (
           <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 22px", borderBottom: `1px solid ${COLORS.border}` }}>
+            <div style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, padding: isMobile ? "14px 16px" : "16px 22px", borderBottom: `1px solid ${COLORS.border}` }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 600 }}>{storeName}</div>
                 <div style={{ fontSize: 12, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", marginTop: 2 }}>
                   {loadingAlerts ? "Atualizando…" : `${alerts.length} evento(s)`}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <Stat icon={<Bell size={14} color={COLORS.amber} />} label="Pendentes" value={pendingCount} color={COLORS.amber} />
                 <Stat icon={<ShieldAlert size={14} color={COLORS.red} />} label="Confirmados" value={confirmedCount} color={COLORS.red} />
-                <Stat icon={<TrendingDown size={14} color={COLORS.teal} />} label="Taxa de falso positivo" value={`${falsePositiveRate}%`} color={COLORS.teal} />
+                {!isMobile && (
+                  <Stat icon={<TrendingDown size={14} color={COLORS.teal} />} label="Taxa de falso positivo" value={`${falsePositiveRate}%`} color={COLORS.teal} />
+                )}
               </div>
             </div>
 
@@ -1137,7 +1184,14 @@ function Dashboard({ token, onLogout }) {
           </div>
         ) : (
           <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-            <div className="lp-scroll" style={{ width: 340, flexShrink: 0, borderRight: `1px solid ${COLORS.border}`, overflowY: "auto", padding: "10px 0" }}>
+            <div
+              className="lp-scroll"
+              style={
+                isMobile
+                  ? { width: "100%", display: mobileShowDetail ? "none" : "block", overflowY: "auto", padding: "10px 0" }
+                  : { width: 340, flexShrink: 0, borderRight: `1px solid ${COLORS.border}`, overflowY: "auto", padding: "10px 0" }
+              }
+            >
               {!loadingAlerts && alerts.length === 0 && (
                 <div className="lp-fade-up" style={{ padding: "40px 24px", color: COLORS.textFaint, fontSize: 13, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
                   <ShieldAlert size={24} color={COLORS.textFaint} style={{ opacity: 0.5 }} />
@@ -1148,7 +1202,7 @@ function Dashboard({ token, onLogout }) {
                 const store = stores.find((s) => s.id === alert.store_id);
                 const active = selectedAlertId === alert.id;
                 return (
-                  <div key={alert.id} className="lp-row" onClick={() => setSelectedAlertId(alert.id)} style={{ display: "flex", gap: 10, padding: "10px 16px", cursor: "pointer", background: active ? COLORS.panelAlt : "transparent", borderLeft: active ? `2px solid ${COLORS.amber}` : "2px solid transparent" }}>
+                  <div key={alert.id} className="lp-row" onClick={() => { setSelectedAlertId(alert.id); if (isMobile) setMobileShowDetail(true); }} style={{ display: "flex", gap: 10, padding: "10px 16px", cursor: "pointer", background: active ? COLORS.panelAlt : "transparent", borderLeft: active ? `2px solid ${COLORS.amber}` : "2px solid transparent" }}>
                     <Thumb status={alert.status} thumbnailUrl={alert.thumbnail_url} />
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alert.camera_label}</div>
@@ -1165,7 +1219,23 @@ function Dashboard({ token, onLogout }) {
               })}
             </div>
 
-            <div style={{ flex: 1, padding: 22, overflowY: "auto" }} className="lp-scroll">
+            <div
+              style={
+                isMobile
+                  ? { width: "100%", display: mobileShowDetail ? "block" : "none", padding: 16, overflowY: "auto" }
+                  : { flex: 1, padding: 22, overflowY: "auto" }
+              }
+              className="lp-scroll"
+            >
+              {isMobile && selectedAlert && (
+                <button
+                  onClick={() => setMobileShowDetail(false)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: COLORS.textMuted, fontSize: 13, padding: "6px 0 16px", cursor: "pointer" }}
+                >
+                  <ArrowLeft size={15} />
+                  Voltar pra lista
+                </button>
+              )}
               {selectedAlert ? (
                 <div key={selectedAlert.id} className="lp-fade-up">
                   <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", borderRadius: 10, background: "#000", border: `1px solid ${COLORS.border}`, overflow: "hidden", marginBottom: 18, boxShadow: SHADOW }}>
@@ -1350,7 +1420,19 @@ function AcceptInviteScreen({ token, onAccepted }) {
 
 export default function App() {
   const [view, setView] = useState("login"); // "login" | "signup"
-  const [token, setToken] = useState(null);
+  // Sessão persiste no localStorage — sem isso, dar refresh na página
+  // (ou fechar e reabrir o navegador) sempre voltava pro login, mesmo
+  // com o token ainda válido.
+  const [token, setTokenState] = useState(() => localStorage.getItem("vigia_token"));
+
+  function setToken(newToken) {
+    if (newToken) {
+      localStorage.setItem("vigia_token", newToken);
+    } else {
+      localStorage.removeItem("vigia_token");
+    }
+    setTokenState(newToken);
+  }
 
   const inviteToken =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("token") : null;

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 import secrets
 
@@ -20,7 +21,9 @@ def signup(request: Request, payload: SignupIn, db: Session = Depends(get_db)):
     loja (com sua própria API key pra box de detecção) e o usuário owner,
     tudo numa única chamada — é o que alimenta a tela de cadastro."""
 
-    existing = db.query(User).filter(User.email == payload.email).first()
+    # payload.email já vem normalizado (schemas.py), mas comparar com
+    # func.lower() também cobre contas antigas salvas antes dessa correção.
+    existing = db.query(User).filter(func.lower(User.email) == payload.email).first()
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Já existe uma conta com este email")
 
@@ -67,7 +70,7 @@ def signup(request: Request, payload: SignupIn, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenOut)
 @limiter.limit("10/minute")
 def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email).first()
+    user = db.query(User).filter(func.lower(User.email) == payload.email).first()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email ou senha inválidos")
 

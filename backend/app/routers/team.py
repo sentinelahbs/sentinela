@@ -17,6 +17,7 @@ import secrets
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -90,12 +91,12 @@ def invite_manager(
     if {s.id for s in valid_stores} != set(payload.store_ids):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uma ou mais lojas informadas são inválidas")
 
-    if db.query(User).filter(User.email == payload.email).first():
+    if db.query(User).filter(func.lower(User.email) == payload.email).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "Já existe uma conta com este email")
 
     existing_invite = (
         db.query(TeamInvite)
-        .filter(TeamInvite.email == payload.email, TeamInvite.accepted_at.is_(None))
+        .filter(func.lower(TeamInvite.email) == payload.email, TeamInvite.accepted_at.is_(None))
         .first()
     )
     if existing_invite:

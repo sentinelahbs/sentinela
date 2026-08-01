@@ -1,6 +1,13 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+
+
+def _normalize_email(value: str) -> str:
+    # Sem isso, "Nome@Gmail.com" e "nome@gmail.com" viram contas diferentes
+    # aos olhos do banco — cadastro duplicado sem querer, ou login que
+    # falha só porque a pessoa digitou com letra maiúscula.
+    return value.strip().lower()
 
 
 class AlertOut(BaseModel):
@@ -50,6 +57,8 @@ class LoginIn(BaseModel):
     email: EmailStr
     password: str
 
+    _normalize_email = field_validator("email")(_normalize_email)
+
 
 class SignupIn(BaseModel):
     company_name: str
@@ -58,6 +67,8 @@ class SignupIn(BaseModel):
     owner_name: str
     email: EmailStr
     password: str
+
+    _normalize_email = field_validator("email")(_normalize_email)
 
 
 class TokenOut(BaseModel):
@@ -76,6 +87,8 @@ class TeamInviteIn(BaseModel):
     name: str
     email: EmailStr
     store_ids: list[str]  # lojas às quais este gestor terá acesso
+
+    _normalize_email = field_validator("email")(_normalize_email)
 
 
 class TeamInviteOut(BaseModel):

@@ -7,7 +7,7 @@
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://430335f8ee4ad6b52a5fb8e16f376ab5.r2.cloudflarestorage.com; media-src 'self' https://430335f8ee4ad6b52a5fb8e16f376ab5.r2.cloudflarestorage.com; connect-src 'self' https://api.vigialoja.com.br; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://430335f8ee4ad6b52a5fb8e16f376ab5.r2.cloudflarestorage.com; media-src 'self' https://430335f8ee4ad6b52a5fb8e16f376ab5.r2.cloudflarestorage.com; connect-src 'self' https://api.vigialoja.com.br https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
         }
       ]
     }

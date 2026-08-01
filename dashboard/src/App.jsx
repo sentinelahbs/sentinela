@@ -33,6 +33,7 @@ import {
 // variáveis de ambiente do provedor de hospedagem do dashboard. Sem isso, cai
 // no endereço de desenvolvimento local (mesmo host, porta 8000).
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:8000`;
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
 
 const COLORS = {
   bg: "#12141A",
@@ -204,11 +205,49 @@ function PrimaryButton({ children, loading, ...props }) {
 
 // --- LOGIN ------------------------------------------------------------
 
+function Turnstile({ onVerify }) {
+  const containerRef = useRef(null);
+  const widgetIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY || !containerRef.current) return;
+
+    // O script do Turnstile carrega de forma assíncrona (tag no
+    // index.html) — espera ficar disponível antes de renderizar o widget.
+    let cancelled = false;
+    const tryRender = () => {
+      if (cancelled) return;
+      if (window.turnstile && containerRef.current) {
+        widgetIdRef.current = window.turnstile.render(containerRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: onVerify,
+          theme: "dark",
+        });
+      } else {
+        setTimeout(tryRender, 200);
+      }
+    };
+    tryRender();
+
+    return () => {
+      cancelled = true;
+      if (widgetIdRef.current != null && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!TURNSTILE_SITE_KEY) return null;
+  return <div ref={containerRef} style={{ margin: "12px 0" }} />;
+}
+
 function LoginScreen({ onLogin, onGoToSignup }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [turnstileToken, setTurnstileToken] = useState("");
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -218,7 +257,7 @@ function LoginScreen({ onLogin, onGoToSignup }) {
       const res = await fetch(`${API_BASE}/v1/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
         if (res.status === 429) {
@@ -241,8 +280,9 @@ function LoginScreen({ onLogin, onGoToSignup }) {
       <form onSubmit={handleSubmit}>
         <Field label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         <Field label="Senha" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Turnstile onVerify={setTurnstileToken} />
         <ErrorNote message={error} />
-        <PrimaryButton type="submit" loading={loading}>Entrar</PrimaryButton>
+        <PrimaryButton type="submit" loading={loading} disabled={TURNSTILE_SITE_KEY && !turnstileToken}>Entrar</PrimaryButton>
       </form>
       <div style={{ marginTop: 16, fontSize: 12.5, color: COLORS.textMuted, textAlign: "center" }}>
         Ainda não tem conta?{" "}
@@ -271,6 +311,7 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null); // { access_token, store_id, store_edge_api_key }
   const [copied, setCopied] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
 
   function update(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -293,7 +334,7 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
       const res = await fetch(`${API_BASE}/v1/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
         if (res.status === 429) {
@@ -427,8 +468,9 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
           <Field label="Email" type="email" required value={form.email} onChange={update("email")} />
           <Field label="Senha" type="password" required minLength={8} value={form.password} onChange={update("password")} />
           <Field label="Confirme a senha" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+          <Turnstile onVerify={setTurnstileToken} />
           <ErrorNote message={error} />
-          <PrimaryButton type="submit" loading={loading}>Criar conta</PrimaryButton>
+          <PrimaryButton type="submit" loading={loading} disabled={TURNSTILE_SITE_KEY && !turnstileToken}>Criar conta</PrimaryButton>
         </form>
       )}
 

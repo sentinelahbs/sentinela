@@ -56,6 +56,7 @@ class StoreCreateOut(BaseModel):
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
+    turnstile_token: str
 
     _normalize_email = field_validator("email")(_normalize_email)
 
@@ -67,6 +68,7 @@ class SignupIn(BaseModel):
     owner_name: str
     email: EmailStr
     password: str
+    turnstile_token: str
 
     _normalize_email = field_validator("email")(_normalize_email)
 

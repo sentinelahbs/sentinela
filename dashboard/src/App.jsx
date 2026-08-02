@@ -158,8 +158,8 @@ function AuthShell({ children, width = 320 }) {
     >
       <style>{globalFonts}</style>
       <div className="lp-fade-up" style={{ width, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 28, boxShadow: SHADOW }}>
-        <div style={{ marginBottom: 22 }}>
-          <Logo size={26} fontSize={20} />
+        <div style={{ marginBottom: 22, display: "flex", justifyContent: "center" }}>
+          <Logo size={34} fontSize={26} />
         </div>
         {children}
       </div>

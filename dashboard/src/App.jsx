@@ -239,7 +239,7 @@ function Turnstile({ onVerify }) {
   }, []);
 
   if (!TURNSTILE_SITE_KEY) return null;
-  return <div ref={containerRef} style={{ margin: "12px 0" }} />;
+  return <div ref={containerRef} style={{ margin: "12px 0", display: "flex", justifyContent: "center" }} />;
 }
 
 function LoginScreen({ onLogin, onGoToSignup }) {
@@ -276,7 +276,7 @@ function LoginScreen({ onLogin, onGoToSignup }) {
   }
 
   return (
-    <AuthShell>
+    <AuthShell width={380}>
       <form onSubmit={handleSubmit}>
         <Field label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         <Field label="Senha" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />

@@ -7,6 +7,7 @@ from database import get_db
 from models import Store, User, UserRole
 from schemas import StoreOut, StoreCreateIn, StoreCreateOut
 from auth import get_current_user
+from tenant_context import set_company_context
 
 router = APIRouter(prefix="/v1/stores", tags=["stores"])
 
@@ -35,13 +36,22 @@ def create_store(
     if user.role != UserRole.OWNER:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas o dono da conta pode adicionar lojas")
 
+    # Guarda como valor puro antes do commit: depois dele o SQLAlchemy
+    # expira os atributos de TODOS os objetos da sessão (inclusive o
+    # `user`, que só foi lido, não modificado) — reler user.company_id
+    # nesse ponto exigiria um SELECT que o RLS ainda não liberou.
+    company_id = user.company_id
+
     store = Store(
-        company_id=user.company_id,
+        company_id=company_id,
         name=payload.name,
         city=payload.city,
         edge_api_key=secrets.token_urlsafe(32),
     )
     db.add(store)
     db.commit()
+    # commit() encerra a transação e reseta o SET LOCAL setado pelo
+    # get_current_user — precisa religar antes do refresh() abaixo.
+    set_company_context(db, company_id)
     db.refresh(store)
     return store

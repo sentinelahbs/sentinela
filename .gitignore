@@ -8,6 +8,7 @@ backend/app/**/__pycache__/
 edge-detection/__pycache__/
 *.pyc
 edge-detection/.venv/
+backend/.venv/
 
 # Modelos de detecção (arquivos grandes — baixados sob demanda, não versionados)
 edge-detection/models/*.onnx

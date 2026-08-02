@@ -28,6 +28,7 @@ from schemas import (
 )
 from auth import get_current_user, hash_password, create_access_token
 from email_client import EmailClient
+from tenant_context import set_invite_lookup, set_company_context, set_auth_bootstrap
 
 router = APIRouter(prefix="/v1/team", tags=["team"])
 email_client = EmailClient()
@@ -91,6 +92,9 @@ def invite_manager(
     if {s.id for s in valid_stores} != set(payload.store_ids):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uma ou mais lojas informadas são inválidas")
 
+    # Precisa enxergar TODAS as empresas aqui — email é único globalmente,
+    # não só dentro da empresa de quem está convidando.
+    set_auth_bootstrap(db)
     if db.query(User).filter(func.lower(User.email) == payload.email).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "Já existe uma conta com este email")
 
@@ -102,10 +106,15 @@ def invite_manager(
     if existing_invite:
         db.delete(existing_invite)  # reenviar convite substitui o anterior
 
-    company = db.query(Company).filter(Company.id == user.company_id).first()
+    # de volta pro contexto da própria empresa — a checagem acima usou o
+    # bootstrap, que enxerga tudo, e não é o que queremos daqui pra frente.
+    company_id = user.company_id
+    set_company_context(db, company_id)
+    company = db.query(Company).filter(Company.id == company_id).first()
+    company_name = company.name
 
     invite = TeamInvite(
-        company_id=user.company_id,
+        company_id=company_id,
         name=payload.name,
         email=payload.email,
         store_ids=",".join(payload.store_ids),
@@ -115,13 +124,18 @@ def invite_manager(
     )
     db.add(invite)
     db.commit()
+    # commit() encerra a transação e reseta o SET LOCAL de novo — precisa
+    # religar antes do refresh() abaixo (com valor puro, não user.company_id:
+    # depois do commit todo objeto da sessão expira, e reler o atributo
+    # exigiria um SELECT que o RLS ainda não liberou nesse instante).
+    set_company_context(db, company_id)
     db.refresh(invite)
 
     try:
         email_client.send_invite_email(
             to_email=invite.email,
             invited_name=invite.name,
-            company_name=company.name,
+            company_name=company_name,
             token=invite.token,
         )
     except Exception as exc:
@@ -164,6 +178,9 @@ invite_router = APIRouter(prefix="/v1/invites", tags=["team"])
 
 @invite_router.get("/{token}", response_model=InviteDetailsOut)
 def get_invite_details(token: str, db: Session = Depends(get_db)):
+    # Quem chama ainda não tem conta — a posse do token é a credencial.
+    set_invite_lookup(db, token)
+
     invite = db.query(TeamInvite).filter(TeamInvite.token == token).first()
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Convite não encontrado")
@@ -171,6 +188,10 @@ def get_invite_details(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este convite já foi utilizado")
     if invite.expires_at < datetime.datetime.utcnow():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este convite expirou — peça um novo")
+
+    # O convite já prova o acesso a essa empresa — libera a leitura da
+    # empresa/lojas relacionadas pra montar a tela "você foi convidado pra X".
+    set_company_context(db, invite.company_id)
 
     company = db.query(Company).filter(Company.id == invite.company_id).first()
     store_ids = [s for s in (invite.store_ids or "").split(",") if s]
@@ -186,6 +207,11 @@ def get_invite_details(token: str, db: Session = Depends(get_db)):
 
 @invite_router.post("/{token}/accept", response_model=TokenOut)
 def accept_invite(token: str, payload: InviteAcceptIn, db: Session = Depends(get_db)):
+    # Mesma lógica do GET acima: posse do token é a credencial aqui, e
+    # essa mesma liberação vale pro UPDATE de accepted_at mais abaixo
+    # (mesma transação).
+    set_invite_lookup(db, token)
+
     invite = db.query(TeamInvite).filter(TeamInvite.token == token).first()
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Convite não encontrado")
@@ -197,8 +223,13 @@ def accept_invite(token: str, payload: InviteAcceptIn, db: Session = Depends(get
     if len(payload.password) < 8:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "A senha precisa ter ao menos 8 caracteres")
 
+    # Valor puro: depois do commit() a instância expira, e reler
+    # invite.company_id nesse ponto exigiria um SELECT que o RLS ainda
+    # não liberou (o token só prova acesso ao convite, não à empresa).
+    company_id = invite.company_id
+
     user = User(
-        company_id=invite.company_id,
+        company_id=company_id,
         name=invite.name,
         email=invite.email,
         password_hash=hash_password(payload.password),
@@ -208,7 +239,11 @@ def accept_invite(token: str, payload: InviteAcceptIn, db: Session = Depends(get
     db.add(user)
     invite.accepted_at = datetime.datetime.utcnow()
     db.commit()
+    # commit() encerra a transação e reseta o SET LOCAL — precisa religar
+    # antes do refresh() abaixo. O usuário recém-criado já pertence à
+    # empresa do convite, então o contexto certo agora é o de empresa.
+    set_company_context(db, company_id)
     db.refresh(user)
 
-    token_value = create_access_token(user_id=user.id, company_id=user.company_id)
+    token_value = create_access_token(user_id=user.id, company_id=company_id)
     return TokenOut(access_token=token_value)

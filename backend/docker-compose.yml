@@ -15,6 +15,10 @@ services:
       POSTGRES_DB: lossprevention
     volumes:
       - db_data:/var/lib/postgresql/data
+      # Roda só na primeira vez, num volume vazio: cria a role sem
+      # superuser que a API usa (ver docker/init-db.sql — precisa bater
+      # com produção pro RLS das migrações ter efeito também aqui).
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -32,7 +36,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/lossprevention
+      # Role dedicada, sem superuser — ver docker/init-db.sql. Se o seu
+      # volume local já existia antes dessa mudança, rode:
+      # docker compose down -v && docker compose up --build
+      # (ou crie a role manualmente num banco que queira preservar).
+      DATABASE_URL: postgresql://vigia_app:vigia_app_local_pw@db:5432/lossprevention
     ports:
       - "8000:8000"
 

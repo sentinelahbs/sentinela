@@ -9,6 +9,7 @@ from models import Alert, AlertStatus, Store, User
 from schemas import AlertOut, AlertReviewIn
 from auth import get_current_user, get_store_from_edge_key, assert_user_can_access_store
 from storage import ClipStorage
+from tenant_context import set_company_context, set_store_lookup
 
 router = APIRouter(prefix="/v1", tags=["alerts"])
 clip_storage = ClipStorage()
@@ -52,6 +53,9 @@ def receive_alert(
     )
     db.add(alert)
     db.commit()
+    # commit() encerra a transação e reseta o SET LOCAL setado pelo
+    # get_store_from_edge_key — precisa religar antes do refresh() abaixo.
+    set_store_lookup(db, store_id)
     db.refresh(alert)
 
     # Aqui é o ponto natural pra disparar push notification pro app mobile
@@ -100,9 +104,17 @@ def review_alert(
     store = db.query(Store).filter(Store.id == alert.store_id).first()
     assert_user_can_access_store(user, store)
 
+    # Valor puro antes do commit: depois dele o `user` (só lido, não
+    # modificado) também expira, e reler user.company_id exigiria um
+    # SELECT que o RLS ainda não liberou nesse instante.
+    company_id = user.company_id
+
     alert.status = payload.status
     alert.reviewed_by_user_id = user.id
     alert.reviewed_at = datetime.datetime.utcnow()
     db.commit()
+    # commit() encerra a transação e reseta o SET LOCAL setado pelo
+    # get_current_user — precisa religar antes do refresh() abaixo.
+    set_company_context(db, company_id)
     db.refresh(alert)
     return alert

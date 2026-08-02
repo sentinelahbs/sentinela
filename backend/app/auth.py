@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User, Store, UserRole
+from tenant_context import set_company_context, set_store_lookup
 
 SECRET_KEY = os.environ.get("JWT_SECRET", "TROCAR_EM_PRODUCAO")
 ALGORITHM = "HS256"
@@ -55,6 +56,10 @@ def get_current_user(
     except jwt.PyJWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token inválido")
 
+    # O company_id já vem assinado dentro do próprio token — dá pra
+    # liberar o RLS pra essa empresa antes mesmo de consultar o usuário.
+    set_company_context(db, payload["company_id"])
+
     user = db.query(User).filter(User.id == payload["sub"]).first()
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuário não encontrado")
@@ -70,6 +75,10 @@ def get_store_from_edge_key(
     mesma credencial usada pelos gestores no dashboard)."""
     if not x_api_key:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-API-Key ausente")
+
+    # Ainda não sabemos a empresa dessa loja — libera o RLS só pra essa
+    # linha específica (ver tenant_context.set_store_lookup).
+    set_store_lookup(db, store_id)
 
     store = db.query(Store).filter(Store.id == store_id).first()
     if store is None or store.edge_api_key != x_api_key:

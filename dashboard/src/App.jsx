@@ -159,7 +159,7 @@ function AuthShell({ children, width = 320 }) {
       <style>{globalFonts}</style>
       <div className="lp-fade-up" style={{ width, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 28, boxShadow: SHADOW }}>
         <div style={{ marginBottom: 22 }}>
-          <Logo size={20} fontSize={16} />
+          <Logo size={26} fontSize={20} />
         </div>
         {children}
       </div>
@@ -1126,7 +1126,7 @@ function Dashboard({ token, onLogout }) {
         }
       >
         <div style={{ padding: "0 6px", marginBottom: 28 }}>
-          <Logo size={20} fontSize={15} />
+          <Logo size={26} fontSize={19} />
         </div>
 
         <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint, letterSpacing: "0.08em", textTransform: "uppercase", padding: "0 6px", marginBottom: 8 }}>
@@ -1206,7 +1206,7 @@ function Dashboard({ token, onLogout }) {
             >
               <Menu size={20} />
             </button>
-            <Logo size={18} fontSize={14} />
+            <Logo size={24} fontSize={18} />
           </div>
         )}
 

@@ -6,8 +6,8 @@ import secrets
 from database import get_db
 from models import User, Company, Store, UserRole
 from rate_limit import limiter, get_client_ip
-from schemas import LoginIn, TokenOut, SignupIn, SignupOut
-from auth import verify_password, hash_password, create_access_token
+from schemas import LoginIn, TokenOut, SignupIn, SignupOut, MeOut
+from auth import verify_password, hash_password, create_access_token, get_current_user
 from email_client import EmailClient
 from turnstile import verify_turnstile
 from tenant_context import set_auth_bootstrap, set_company_context
@@ -101,3 +101,14 @@ def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
 
     token = create_access_token(user_id=user.id, company_id=user.company_id)
     return TokenOut(access_token=token)
+
+
+@router.get("/me", response_model=MeOut)
+def me(user: User = Depends(get_current_user)):
+    """Usado pelo frontend para saber, logo após o login, se essa pessoa
+    tem acesso ao painel administrativo interno (is_platform_admin) —
+    decide se mostra o link para o admin ou não."""
+    return MeOut(
+        id=user.id, name=user.name, email=user.email,
+        role=user.role.value, is_platform_admin=user.is_platform_admin,
+    )

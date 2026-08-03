@@ -43,6 +43,11 @@ class Company(Base):
     name = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Cobrança via Asaas — preenchidos quando a empresa assina o plano.
+    asaas_customer_id = Column(String, nullable=True)
+    asaas_subscription_id = Column(String, nullable=True)
+    subscription_status = Column(String, default="none")  # none | pending | active | overdue | canceled
+
     stores = relationship("Store", back_populates="company")
     users = relationship("User", back_populates="company")
 
@@ -95,6 +100,11 @@ class User(Base):
     # Se STORE_MANAGER: lista de store_ids que ele pode ver.
     # (Em produção isso vira uma tabela associativa; simplificado aqui.)
     assigned_store_ids = Column(Text, default="")
+
+    # Acesso ao painel administrativo interno do VigIA (não confundir com
+    # UserRole.OWNER, que é "dono da conta de uma empresa cliente" — isso
+    # aqui é "funcionário seu, da equipe do VigIA").
+    is_platform_admin = Column(Boolean, default=False)
 
     company = relationship("Company", back_populates="users")
 

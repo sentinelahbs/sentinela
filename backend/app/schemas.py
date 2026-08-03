@@ -121,3 +121,45 @@ class TeamMemberOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class MeOut(BaseModel):
+    id: str
+    name: str
+    email: EmailStr
+    role: str
+    is_platform_admin: bool
+
+
+class AdminCompanyOut(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    store_count: int
+    user_count: int
+    subscription_status: str
+
+
+class AdminCompanyDetailOut(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    subscription_status: str
+    stores: list[StoreOut]
+    users: list[TeamMemberOut]
+
+
+class SubscribeIn(BaseModel):
+    cpf_cnpj: str        # CPF ou CNPJ do responsável/empresa, exigido pelo Asaas
+    plan_value: float     # valor mensal da assinatura, em reais
+
+
+class SubscribeOut(BaseModel):
+    subscription_status: str
+    pix_qr_code_image: str | None = None   # base64, para renderizar a imagem do QR Code
+    pix_copy_paste: str | None = None       # código "copia e cola"
+    pix_expiration: str | None = None
+
+
+class BillingStatusOut(BaseModel):
+    subscription_status: str

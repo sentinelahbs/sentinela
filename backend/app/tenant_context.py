@@ -46,3 +46,22 @@ def set_auth_bootstrap(db: Session) -> None:
     TODAS as empresas). Fora desses dois pontos, nenhuma outra rota deve
     chamar isso — o resto do app já sabe o company_id do usuário logado."""
     db.execute(text("SET LOCAL app.auth_bootstrap = 'true'"))
+
+
+def set_platform_admin_context(db: Session) -> None:
+    """Usado só por get_current_admin (auth.py), depois de já confirmar
+    is_platform_admin=True — libera visão de TODAS as empresas/lojas/
+    usuários, para o painel administrativo interno do VigIA. Nenhuma rota
+    de cliente deve chamar isso; é exclusivo do painel admin."""
+    db.execute(text("SET LOCAL app.platform_admin = 'true'"))
+
+
+def set_billing_lookup(db: Session, asaas_subscription_id: str) -> None:
+    """Usado só pelo webhook do Asaas (/v1/billing/webhook), que não tem
+    usuário logado — é o Asaas avisando sobre um pagamento, autenticado
+    pelo token do webhook, não por JWT. Libera a leitura/atualização só
+    da empresa dona dessa assinatura específica."""
+    db.execute(
+        text("SET LOCAL app.lookup_subscription_id = :sid"),
+        {"sid": asaas_subscription_id},
+    )

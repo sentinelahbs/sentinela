@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User, Store, UserRole
-from tenant_context import set_company_context, set_store_lookup
+from tenant_context import set_company_context, set_store_lookup, set_platform_admin_context
 
 SECRET_KEY = os.environ.get("JWT_SECRET", "TROCAR_EM_PRODUCAO")
 ALGORITHM = "HS256"
@@ -99,3 +99,18 @@ def assert_user_can_access_store(user: User, store: Store):
         assigned = (user.assigned_store_ids or "").split(",")
         if store.id not in assigned:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Sem acesso a esta loja")
+
+
+def get_current_admin(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> User:
+    """Para o painel administrativo interno do VigIA — só quem tem
+    is_platform_admin=True (sua equipe, não clientes) passa daqui.
+    O flag é ligado direto no banco por você mesmo, não existe endpoint
+    de auto-promoção."""
+    if not user.is_platform_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Acesso restrito à equipe do VigIA")
+    # Libera a visão de todas as empresas/lojas/usuários pro painel admin
+    # (ver tenant_context.set_platform_admin_context e a migração de RLS).
+    set_platform_admin_context(db)
+    return user

@@ -27,6 +27,8 @@ import {
   Mail,
   Menu,
   Download,
+  CreditCard,
+  QrCode,
 } from "lucide-react";
 
 // Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
@@ -948,6 +950,267 @@ function TeamPanel({ api, stores }) {
   );
 }
 
+// Mesmo modelo de preço do backend (routers/billing.py) — só exibição,
+// a fonte de verdade de quanto cobrar é sempre o servidor.
+const CAMERAS_PER_PACKAGE = 5;
+const PRICE_PER_PACKAGE = 349;
+
+function BillingStatusBadge({ status }) {
+  const map = {
+    none: { label: "Sem plano", color: COLORS.textFaint },
+    pending: { label: "Pagamento pendente", color: COLORS.amber },
+    active: { label: "Ativa", color: COLORS.teal },
+    overdue: { label: "Pagamento vencido", color: COLORS.red },
+    canceled: { label: "Cancelada", color: COLORS.red },
+  };
+  const s = map[status] || map.none;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.04em", textTransform: "uppercase", color: s.color }}>
+      <Circle size={7} fill={s.color} stroke="none" />
+      {s.label}
+    </span>
+  );
+}
+
+function BillingPanel({ api }) {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showSubscribe, setShowSubscribe] = useState(false);
+
+  const loadStatus = useCallback(() => {
+    setLoading(true);
+    api("/v1/billing/status")
+      .then((data) => {
+        setStatus(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, [api]);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  const hasPlan = status && status.camera_limit > 0;
+  const usagePct = hasPlan ? Math.min(100, Math.round((status.cameras_used / status.camera_limit) * 100)) : 0;
+  const atLimit = hasPlan && status.cameras_used >= status.camera_limit;
+  // Sem câmera liberada ainda (webhook não confirmou), mas já tem uma
+  // assinatura em aberto — mostra "aguardando pagamento" em vez do
+  // estado vazio genérico, senão parece que o pedido nem foi feito.
+  const awaitingFirstPayment = status && !hasPlan && status.subscription_status === "pending";
+
+  return (
+    <div style={{ flex: 1, padding: 22, overflowY: "auto" }} className="lp-scroll">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Plano</div>
+          <div style={{ fontSize: 12.5, color: COLORS.textFaint, marginTop: 2 }}>
+            Câmeras contratadas e cobrança via Pix
+          </div>
+        </div>
+        <button
+          className="lp-btn"
+          onClick={() => setShowSubscribe(true)}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 8, border: "none", background: COLORS.amber, color: "#1a1200", fontSize: 13, fontWeight: 600 }}
+        >
+          <Plus size={14} />
+          Adicionar mais câmeras
+        </button>
+      </div>
+
+      <ErrorNote message={error} />
+
+      {loading ? (
+        <div style={{ color: COLORS.textFaint, fontSize: 13 }}>Carregando plano…</div>
+      ) : awaitingFirstPayment ? (
+        <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 28, textAlign: "center" }}>
+          <QrCode size={22} color={COLORS.amber} style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 13.5, color: COLORS.textMuted, marginBottom: 4 }}>Aguardando confirmação do pagamento</div>
+          <div style={{ fontSize: 12, color: COLORS.textFaint, maxWidth: 320, margin: "0 auto", lineHeight: 1.5 }}>
+            As câmeras ficam liberadas automaticamente assim que o Pix cair. Se perdeu o QR Code, clique em "Adicionar mais câmeras" pra gerar um novo.
+          </div>
+        </div>
+      ) : !hasPlan ? (
+        <div style={{ border: `1px dashed ${COLORS.border}`, borderRadius: 10, padding: 28, textAlign: "center" }}>
+          <CreditCard size={22} color={COLORS.textFaint} style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 13.5, color: COLORS.textMuted, marginBottom: 4 }}>Nenhuma câmera contratada ainda</div>
+          <div style={{ fontSize: 12, color: COLORS.textFaint, maxWidth: 320, margin: "0 auto", lineHeight: 1.5 }}>
+            Cada pacote libera {CAMERAS_PER_PACKAGE} câmeras por R$ {PRICE_PER_PACKAGE}/mês. Adicione câmeras pra começar a cadastrá-las.
+          </div>
+        </div>
+      ) : (
+        <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 18, background: COLORS.panel, maxWidth: 420 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>
+              {status.cameras_used} de {status.camera_limit} câmeras em uso
+            </div>
+            <BillingStatusBadge status={status.subscription_status} />
+          </div>
+          <div style={{ height: 8, borderRadius: 5, background: COLORS.panelAlt, border: `1px solid ${COLORS.borderSoft}`, overflow: "hidden", marginBottom: 8 }}>
+            <div style={{ height: "100%", width: `${usagePct}%`, background: atLimit ? COLORS.red : COLORS.teal, borderRadius: 5, transition: "width .25s ease" }} />
+          </div>
+          <div style={{ fontSize: 11.5, color: COLORS.textFaint }}>
+            {Math.floor(status.camera_limit / CAMERAS_PER_PACKAGE)} pacote(s) de {CAMERAS_PER_PACKAGE} câmeras — R$ {(Math.floor(status.camera_limit / CAMERAS_PER_PACKAGE) * PRICE_PER_PACKAGE).toLocaleString("pt-BR")}/mês
+          </div>
+          {atLimit && (
+            <div style={{ marginTop: 12, fontSize: 12.5, color: COLORS.red, display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={13} />
+              Limite de câmeras atingido — adicione mais câmeras pra cadastrar novas.
+            </div>
+          )}
+        </div>
+      )}
+
+      {showSubscribe && (
+        <SubscribeModal api={api} onClose={() => setShowSubscribe(false)} onSubscribed={loadStatus} />
+      )}
+    </div>
+  );
+}
+
+function SubscribeModal({ api, onClose, onSubscribed }) {
+  const [packages, setPackages] = useState(1);
+  const [cpfCnpj, setCpfCnpj] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api("/v1/billing/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ camera_packages: packages, cpf_cnpj: cpfCnpj.replace(/\D/g, "") }),
+      });
+      setResult(data);
+      onSubscribed();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function copyPix() {
+    navigator.clipboard?.writeText(result.pix_copy_paste);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div onClick={onClose} className="lp-overlay-in" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+      <div onClick={(e) => e.stopPropagation()} className="lp-modal-in" style={{ width: 360, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 24, boxShadow: SHADOW, maxHeight: "90vh", overflowY: "auto" }}>
+        {!result ? (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Adicionar mais câmeras</div>
+            <p style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 0, marginBottom: 16 }}>
+              Cada pacote libera {CAMERAS_PER_PACKAGE} câmeras por R$ {PRICE_PER_PACKAGE}/mês.
+            </p>
+            <form onSubmit={handleSubmit}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 5 }}>
+                  Pacotes ({CAMERAS_PER_PACKAGE} câmeras cada)
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <button
+                    type="button"
+                    className="lp-btn"
+                    onClick={() => setPackages((p) => Math.max(1, p - 1))}
+                    style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${COLORS.border}`, background: COLORS.panelAlt, color: COLORS.text, fontSize: 16, lineHeight: 1 }}
+                  >
+                    −
+                  </button>
+                  <div style={{ flex: 1, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{packages}</div>
+                  <button
+                    type="button"
+                    className="lp-btn"
+                    onClick={() => setPackages((p) => p + 1)}
+                    style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${COLORS.border}`, background: COLORS.panelAlt, color: COLORS.text, fontSize: 16, lineHeight: 1 }}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <Field label="CPF ou CNPJ do responsável" required value={cpfCnpj} onChange={(e) => setCpfCnpj(e.target.value)} placeholder="Só números" />
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: COLORS.panelAlt, borderRadius: 7, marginBottom: 14, fontSize: 13 }}>
+                <span style={{ color: COLORS.textMuted }}>{packages * CAMERAS_PER_PACKAGE} câmeras</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>R$ {(packages * PRICE_PER_PACKAGE).toLocaleString("pt-BR")}/mês</span>
+              </div>
+
+              <ErrorNote message={error} />
+              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                <button
+                  type="button"
+                  className="lp-btn"
+                  onClick={onClose}
+                  style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.textMuted, fontSize: 13 }}
+                >
+                  Cancelar
+                </button>
+                <div style={{ flex: 1.4 }}>
+                  <PrimaryButton type="submit" loading={loading}>Gerar cobrança Pix</PrimaryButton>
+                </div>
+              </div>
+            </form>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(52,211,153,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <QrCode size={13} color={COLORS.teal} />
+              </div>
+              <span style={{ fontWeight: 600, fontSize: 13.5 }}>Pague pra ativar</span>
+            </div>
+
+            {result.pix_qr_code_image ? (
+              <>
+                <p style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4, marginBottom: 14 }}>
+                  Escaneie o QR Code no app do seu banco, ou copie o código Pix abaixo.
+                </p>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                  <img
+                    src={`data:image/png;base64,${result.pix_qr_code_image}`}
+                    alt="QR Code Pix"
+                    style={{ width: 180, height: 180, borderRadius: 8, background: "#fff", padding: 8 }}
+                  />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "9px 10px", marginBottom: 14 }}>
+                  <code style={{ flex: 1, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {result.pix_copy_paste}
+                  </code>
+                  <button className="lp-btn" onClick={copyPix} style={{ border: "none", background: "transparent", color: copied ? COLORS.teal : COLORS.textMuted, display: "flex" }}>
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 4, marginBottom: 14, lineHeight: 1.5 }}>
+                Assinatura criada — o QR Code ainda está sendo gerado. Feche esta janela e volte na tela de Plano em alguns instantes pra ver o código de pagamento.
+              </p>
+            )}
+
+            <p style={{ fontSize: 11.5, color: COLORS.textFaint, marginBottom: 18, lineHeight: 1.5 }}>
+              As {result.camera_limit_pending} câmeras ficam liberadas automaticamente assim que o pagamento for confirmado.
+            </p>
+
+            <PrimaryButton onClick={onClose}>Concluir</PrimaryButton>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Bipe de dois tons pra novo alerta pendente — gerado na hora via Web Audio,
 // sem depender de um arquivo de áudio.
 function playAlertSound() {
@@ -1020,7 +1283,7 @@ function Dashboard({ token, onLogout }) {
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [error, setError] = useState(null);
   const [showAddStore, setShowAddStore] = useState(false);
-  const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team"
+  const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team" | "billing"
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("vigia_sound_enabled") !== "false");
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
@@ -1182,6 +1445,15 @@ function Dashboard({ token, onLogout }) {
         </button>
 
         <button
+          className="lp-btn lp-nav"
+          onClick={() => { setActiveView("billing"); setShowMobileNav(false); }}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: activeView === "billing" ? COLORS.panelAlt : "transparent", color: activeView === "billing" ? COLORS.text : COLORS.textFaint, fontSize: 12.5, textAlign: "left", marginTop: 2 }}
+        >
+          <CreditCard size={13} />
+          Plano
+        </button>
+
+        <button
           className="lp-btn"
           onClick={() => setSoundEnabled((prev) => !prev)}
           style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: "transparent", color: COLORS.textFaint, fontSize: 12.5, textAlign: "left" }}
@@ -1239,6 +1511,8 @@ function Dashboard({ token, onLogout }) {
 
         {activeView === "team" ? (
           <TeamPanel api={api} stores={stores} />
+        ) : activeView === "billing" ? (
+          <BillingPanel api={api} />
         ) : showEmptyState ? (
           <div className="lp-fade-up" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: COLORS.textFaint }}>
             <Building2 size={28} color={COLORS.textFaint} style={{ opacity: 0.6 }} />

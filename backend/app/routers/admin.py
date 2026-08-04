@@ -72,12 +72,20 @@ def get_company_detail(
 
     stores = db.query(Store).filter(Store.company_id == company.id).all()
     users = db.query(User).filter(User.company_id == company.id).all()
+    cameras_used = (
+        db.query(Camera)
+        .join(Store, Camera.store_id == Store.id)
+        .filter(Store.company_id == company.id, Camera.active.is_(True))
+        .count()
+    )
 
     return AdminCompanyDetailOut(
         id=company.id,
         name=company.name,
         created_at=company.created_at.isoformat(),
         subscription_status=company.subscription_status,
+        camera_limit=company.camera_limit or 0,
+        cameras_used=cameras_used,
         stores=stores,
         users=[_team_member_out(u) for u in users],
     )

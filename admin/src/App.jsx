@@ -241,6 +241,19 @@ function CompanyDetail({ api, companyId, onBack }) {
         <StatusBadge status={detail.subscription_status} />
       </div>
 
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, fontSize: 12.5 }}>
+        <span style={{ color: COLORS.textFaint }}>Câmeras:</span>
+        <span
+          style={{
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontWeight: 600,
+            color: detail.cameras_used >= detail.camera_limit && detail.camera_limit > 0 ? COLORS.red : COLORS.text,
+          }}
+        >
+          {detail.cameras_used} / {detail.camera_limit}
+        </span>
+      </div>
+
       <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
         Lojas ({detail.stores.length})
       </div>
@@ -338,6 +351,7 @@ function AdminPanel({ token, onLogout }) {
                   <th style={{ padding: "10px 22px" }}>Empresa</th>
                   <th style={{ padding: "10px 12px" }}>Lojas</th>
                   <th style={{ padding: "10px 12px" }}>Usuários</th>
+                  <th style={{ padding: "10px 12px" }}>Câmeras</th>
                   <th style={{ padding: "10px 12px" }}>Cliente desde</th>
                   <th style={{ padding: "10px 22px" }}>Cobrança</th>
                 </tr>
@@ -348,6 +362,16 @@ function AdminPanel({ token, onLogout }) {
                     <td style={{ padding: "12px 22px", fontWeight: 500 }}>{c.name}</td>
                     <td style={{ padding: "12px" }}>{c.store_count}</td>
                     <td style={{ padding: "12px" }}>{c.user_count}</td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        fontSize: 12,
+                        color: c.cameras_used >= c.camera_limit && c.camera_limit > 0 ? COLORS.red : COLORS.textMuted,
+                      }}
+                    >
+                      {c.cameras_used} / {c.camera_limit}
+                    </td>
                     <td style={{ padding: "12px", color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
                       {new Date(c.created_at).toLocaleDateString("pt-BR")}
                     </td>

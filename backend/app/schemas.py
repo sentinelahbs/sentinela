@@ -147,6 +147,8 @@ class AdminCompanyDetailOut(BaseModel):
     name: str
     created_at: str
     subscription_status: str
+    camera_limit: int
+    cameras_used: int
     stores: list[StoreOut]
     users: list[TeamMemberOut]
 

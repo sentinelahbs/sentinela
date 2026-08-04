@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, DateTime, ForeignKey, Enum, Float, Text, Boolean
+    Column, String, DateTime, ForeignKey, Enum, Float, Text, Boolean, Integer
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, declarative_base
@@ -46,7 +46,22 @@ class Company(Base):
     # Cobrança via Asaas — preenchidos quando a empresa assina o plano.
     asaas_customer_id = Column(String, nullable=True)
     asaas_subscription_id = Column(String, nullable=True)
-    subscription_status = Column(String, default="none")  # none | pending | active | overdue | canceled
+    # nullable=False bate com o NOT NULL + server_default aplicados na
+    # migração 073ce17c17dc — sem declarar aqui, o autogenerate do
+    # Alembic tentava reverter essa constraint na próxima migração.
+    subscription_status = Column(String, nullable=False, default="none")  # none | pending | active | overdue | canceled
+
+    # Quantas câmeras a empresa contratou, no total (soma de todos os
+    # pacotes de 5). Isso é o que limita quantas câmeras podem ser
+    # cadastradas em qualquer loja da empresa, somadas. NOT NULL: o
+    # cameras.py compara `current_count >= company.camera_limit`, e isso
+    # quebraria com None numa empresa sem nenhuma assinatura ainda.
+    camera_limit = Column(Integer, nullable=False, default=0)
+    # Guardado no momento do /subscribe, antes da confirmação do
+    # pagamento — o camera_limit só é efetivamente aumentado quando o
+    # webhook confirma o pagamento (ver routers/billing.py), para não
+    # liberar câmeras sem cobrança confirmada.
+    pending_camera_packages = Column(Integer, nullable=True)
 
     stores = relationship("Store", back_populates="company")
     users = relationship("User", back_populates="company")
@@ -104,7 +119,7 @@ class User(Base):
     # Acesso ao painel administrativo interno do VigIA (não confundir com
     # UserRole.OWNER, que é "dono da conta de uma empresa cliente" — isso
     # aqui é "funcionário seu, da equipe do VigIA").
-    is_platform_admin = Column(Boolean, default=False)
+    is_platform_admin = Column(Boolean, nullable=False, default=False)
 
     company = relationship("Company", back_populates="users")
 

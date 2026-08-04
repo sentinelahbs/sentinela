@@ -56,6 +56,32 @@ class AsaasClient:
         resp.raise_for_status()
         return resp.json()  # inclui "id" (ex: "sub_xxx")
 
+    def update_subscription(self, subscription_id: str, value: float, description: str):
+        """Atualiza o VALOR da recorrência a partir do próximo ciclo —
+        usado quando a empresa compra mais pacotes de câmera e já tem
+        assinatura ativa, em vez de criar uma segunda assinatura solta."""
+        resp = self.session.put(f"{ASAAS_BASE_URL}/subscriptions/{subscription_id}", json={
+            "value": value,
+            "description": description,
+        })
+        resp.raise_for_status()
+        return resp.json()
+
+    def create_payment(self, customer_id: str, value: float, description: str, due_date: str):
+        """Cobrança avulsa (não recorrente) — usada para cobrar AGORA a
+        diferença de um upgrade de pacotes no meio do ciclo, enquanto a
+        assinatura recorrente já foi ajustada para refletir o novo total
+        a partir do próximo mês."""
+        resp = self.session.post(f"{ASAAS_BASE_URL}/payments", json={
+            "customer": customer_id,
+            "billingType": "PIX",
+            "value": value,
+            "dueDate": due_date,
+            "description": description,
+        })
+        resp.raise_for_status()
+        return resp.json()  # inclui "id" (ex: "pay_xxx")
+
     def get_payments_for_subscription(self, subscription_id: str):
         """A assinatura em si não tem QR Code — quem tem é a cobrança
         (payment) gerada por ela. A primeira cobrança nasce junto com a

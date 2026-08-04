@@ -65,3 +65,15 @@ def set_billing_lookup(db: Session, asaas_subscription_id: str) -> None:
         text("SET LOCAL app.lookup_subscription_id = :sid"),
         {"sid": asaas_subscription_id},
     )
+
+
+def set_customer_lookup(db: Session, asaas_customer_id: str) -> None:
+    """Igual set_billing_lookup, mas pelo customer_id — usado quando o
+    webhook do Asaas manda uma cobrança AVULSA (upgrade de pacotes), que
+    não tem "subscription" associada, só "customer". Os dois lookups do
+    webhook podem estar ativos na mesma transação (um cobre cada
+    caminho possível de identificar a empresa certa)."""
+    db.execute(
+        text("SET LOCAL app.lookup_customer_id = :cid"),
+        {"cid": asaas_customer_id},
+    )

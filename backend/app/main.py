@@ -13,7 +13,7 @@ from sqlalchemy import text
 from database import engine, SessionLocal
 from models import Base
 from rate_limit import limiter
-from routers import alerts, auth, stores, team, billing, admin
+from routers import alerts, auth, stores, team, billing, admin, cameras
 
 logger = logging.getLogger("vigia")
 
@@ -41,6 +41,7 @@ app.include_router(team.router)
 app.include_router(team.invite_router)
 app.include_router(billing.router)
 app.include_router(admin.router)
+app.include_router(cameras.router)
 
 
 @app.middleware("http")

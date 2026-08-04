@@ -138,6 +138,8 @@ class AdminCompanyOut(BaseModel):
     store_count: int
     user_count: int
     subscription_status: str
+    camera_limit: int
+    cameras_used: int
 
 
 class AdminCompanyDetailOut(BaseModel):
@@ -149,13 +151,29 @@ class AdminCompanyDetailOut(BaseModel):
     users: list[TeamMemberOut]
 
 
+class CameraOut(BaseModel):
+    id: str
+    store_id: str
+    label: str
+    active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class CameraCreateIn(BaseModel):
+    label: str
+
+
 class SubscribeIn(BaseModel):
-    cpf_cnpj: str        # CPF ou CNPJ do responsável/empresa, exigido pelo Asaas
-    plan_value: float     # valor mensal da assinatura, em reais
+    cpf_cnpj: str          # CPF ou CNPJ do responsável/empresa, exigido pelo Asaas
+    camera_packages: int    # quantidade de pacotes de 5 câmeras (mínimo 1)
 
 
 class SubscribeOut(BaseModel):
     subscription_status: str
+    camera_limit_pending: int      # quantas câmeras ficarão liberadas quando o pagamento confirmar
+    monthly_value: float
     pix_qr_code_image: str | None = None   # base64, para renderizar a imagem do QR Code
     pix_copy_paste: str | None = None       # código "copia e cola"
     pix_expiration: str | None = None
@@ -163,3 +181,5 @@ class SubscribeOut(BaseModel):
 
 class BillingStatusOut(BaseModel):
     subscription_status: str
+    camera_limit: int
+    cameras_used: int

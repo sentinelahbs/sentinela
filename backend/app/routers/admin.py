@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Company, Store, User
+from models import Company, Store, User, Camera
 from schemas import AdminCompanyOut, AdminCompanyDetailOut
 from auth import get_current_admin
 
@@ -39,6 +39,12 @@ def list_companies(
     for company in companies:
         store_count = db.query(Store).filter(Store.company_id == company.id).count()
         user_count = db.query(User).filter(User.company_id == company.id).count()
+        cameras_used = (
+            db.query(Camera)
+            .join(Store, Camera.store_id == Store.id)
+            .filter(Store.company_id == company.id, Camera.active.is_(True))
+            .count()
+        )
         result.append(AdminCompanyOut(
             id=company.id,
             name=company.name,
@@ -46,6 +52,8 @@ def list_companies(
             store_count=store_count,
             user_count=user_count,
             subscription_status=company.subscription_status,
+            camera_limit=company.camera_limit or 0,
+            cameras_used=cameras_used,
         ))
     return result
 

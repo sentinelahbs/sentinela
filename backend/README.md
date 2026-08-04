@@ -76,13 +76,22 @@ Configure as variáveis `SMTP_*` e `EMAIL_FROM*` no `.env` com as
 credenciais do seu provedor (SendGrid, SES, Postmark etc. — qualquer um
 que ofereça relay SMTP funciona sem mudar código).
 
+## Já em produção
+
+- Migrações reais via Alembic (`alembic upgrade head`), `AUTO_CREATE_TABLES=false`
+- `ALLOWED_ORIGINS` restrito ao domínio real do dashboard (CORS)
+- Rate limiting por IP em login e cadastro (`rate_limit.py`)
+- Cloudflare Turnstile (CAPTCHA) no login e cadastro
+
 ## O que falta para produção
 
-- Migrações com Alembic em vez de `create_all`
-- Tabela associativa real para `assigned_store_ids` (hoje simplificada)
+- Tabela associativa real para `assigned_store_ids` (hoje simplificada,
+  campo de texto)
+- Rate limiting no endpoint de recebimento de alertas (`POST
+  /v1/stores/{id}/alerts`) — hoje só login/cadastro são limitados; uma
+  box com bug em loop ainda pode saturar o backend
 - Job assíncrono aplicando a política de retenção (`clip_retention_days`)
-  de cada loja — apagar clipes automaticamente após o prazo, como manda
-  a boa prática de LGPD discutida antes
+  de cada loja — apagar clipes automaticamente após o prazo. Hoje isso só
+  é coberto se o bucket S3 tiver uma regra de expiração configurada
+  manualmente (ver `DEPLOY.md`), não pelo backend
 - Testes automatizados dos endpoints
-- Rate limiting no endpoint de recebimento de alertas (evita que uma box
-  com bug em loop sature o backend)

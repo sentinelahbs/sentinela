@@ -112,14 +112,17 @@ não numa nuvem:
 
 ## Checklist antes de anunciar pra clientes reais
 
-- [ ] `ALLOWED_ORIGINS` restrito ao domínio real do dashboard (não `*`)
-- [ ] `JWT_SECRET` trocado por um valor aleatório longo, fora do git
-- [ ] Migrações via Alembic rodando, `AUTO_CREATE_TABLES=false`
+- [x] `ALLOWED_ORIGINS` restrito ao domínio real do dashboard (não `*`) —
+      confirmado em produção (`app.vigialoja.com.br` / `api.vigialoja.com.br`)
+- [x] `JWT_SECRET` trocado por um valor aleatório longo, fora do git
+- [x] Migrações via Alembic rodando, `AUTO_CREATE_TABLES=false`
 - [ ] Política de expiração automática configurada no bucket de clipes
-- [ ] Email transacional testado de ponta a ponta (convite chegando
-      na caixa de entrada, não em spam — configurar SPF/DKIM do domínio
-      de envio ajuda bastante aqui)
-- [ ] HTTPS em todas as pontas (backend, dashboard) — nenhum provedor
-      sugerido acima exige configuração manual de certificado
+      (bucket R2 criado, mas a regra de expiração em si ainda não foi
+      confirmada como configurada)
+- [x] Email transacional testado de ponta a ponta (boas-vindas chegando
+      via SendGrid) — falta só confirmar SPF/DKIM do domínio pra reduzir
+      chance de cair em spam
+- [x] HTTPS em todas as pontas (backend, dashboard) — confirmado com
+      domínio próprio
 - [ ] Backup automático do Postgres confirmado ativo no provedor
-      escolhido
+      escolhido (Railway)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   ShieldAlert,
   Building2,
@@ -11,7 +11,13 @@ import {
   LogOut,
 } from "lucide-react";
 
-const API_BASE = "http://localhost:8000";
+// Sem VITE_API_BASE definida (ex: rodando local com `npm run dev`),
+// cai no backend de produção — troque pra http://localhost:8000 num
+// .env.local se for testar contra o backend local.
+const API_BASE = import.meta.env.VITE_API_BASE || "https://api.vigialoja.com.br";
+// Mesma site key pública já usada pelo dashboard de clientes — reaproveitar
+// evita precisar criar um segundo widget no Cloudflare Turnstile.
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
 
 const COLORS = {
   bg: "#12141A",
@@ -86,9 +92,47 @@ function useApiClient(token, onUnauthorized) {
   );
 }
 
+function Turnstile({ onVerify }) {
+  const containerRef = useRef(null);
+  const widgetIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY || !containerRef.current) return;
+
+    // O script do Turnstile carrega de forma assíncrona (tag no
+    // index.html) — espera ficar disponível antes de renderizar o widget.
+    let cancelled = false;
+    const tryRender = () => {
+      if (cancelled) return;
+      if (window.turnstile && containerRef.current) {
+        widgetIdRef.current = window.turnstile.render(containerRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: onVerify,
+          theme: "dark",
+        });
+      } else {
+        setTimeout(tryRender, 200);
+      }
+    };
+    tryRender();
+
+    return () => {
+      cancelled = true;
+      if (widgetIdRef.current != null && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!TURNSTILE_SITE_KEY) return null;
+  return <div ref={containerRef} style={{ margin: "12px 0", display: "flex", justifyContent: "center" }} />;
+}
+
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -100,11 +144,7 @@ function LoginScreen({ onLogin }) {
       const res = await fetch(`${API_BASE}/v1/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // turnstile_token vazio: o painel admin é interno (sem widget de
-        // captcha) — em produção o backend só aceita isso se
-        // TURNSTILE_SECRET_KEY não estiver configurada nesse ambiente,
-        // igual ao bypass que já vale pra dev local.
-        body: JSON.stringify({ email, password, turnstile_token: "" }),
+        body: JSON.stringify({ email, password, turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -135,6 +175,8 @@ function LoginScreen({ onLogin }) {
         <label style={{ fontSize: 12, color: COLORS.textMuted, display: "block", margin: "14px 0 5px" }}>Senha</label>
         <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
 
+        <Turnstile onVerify={setTurnstileToken} />
+
         {error && (
           <div style={{ marginTop: 14, fontSize: 12.5, color: COLORS.red, display: "flex", alignItems: "center", gap: 6 }}>
             <AlertTriangle size={13} />
@@ -142,7 +184,7 @@ function LoginScreen({ onLogin }) {
           </div>
         )}
 
-        <button type="submit" disabled={loading} style={{ marginTop: 20, width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: COLORS.amber, color: "#1a1200", fontWeight: 600, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
+        <button type="submit" disabled={loading || (TURNSTILE_SITE_KEY && !turnstileToken)} style={{ marginTop: 20, width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: COLORS.amber, color: "#1a1200", fontWeight: 600, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
           {loading && <Loader2 size={14} className="lp-spin" />}
           Entrar
         </button>

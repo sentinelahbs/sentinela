@@ -111,13 +111,26 @@ problema ao tentar assistir. A versão da lib importa: precisa bater
 exatamente com a que o FFmpeg embutido no OpenCV está pedindo (aparece
 no erro do terminal se a versão errada for baixada).
 
+## Já testado
+
+- Fluxo completo testado de ponta a ponta com webcam real (não só RTSP
+  simulado): alerta disparou, clipe gravado (pré + pós evento) e recebido
+  pelo backend, sem travar o processo. Calibração de frames-parados
+  ajustada para o hardware sem GPU usado no teste (ver
+  `edge_detection_calibration` na memória do projeto — precisa recalibrar
+  quando o hardware real da loja for escolhido, já que fps varia por
+  máquina)
+
 ## O que falta para produção (próximos passos)
 
 - Tracker de pessoa real entre frames (ex: ByteTrack), em vez do índice
   simples usado aqui — importante pra loja com mais de uma pessoa no quadro
 - Fila local (ex: SQLite) para reenviar alertas se a internet cair
 - Um processo supervisor que reinicia a câmera automaticamente se o stream
-  RTSP cair
+  RTSP cair — hoje `capture.py` só espera 1s e tenta ler de novo
+  indefinidamente, sem reconexão de verdade
 - Fluxo de cadastro de câmera por loja no dashboard (a tabela `cameras`
   existe no backend, mas ainda não tem tela — por isso `camera_id` não é
   enviado pelo alert_client hoje)
+- Documentar a instalação no hardware real da loja (mini-PC) — testado só
+  em notebook/webcam até agora

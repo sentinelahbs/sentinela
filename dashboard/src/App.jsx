@@ -308,6 +308,7 @@ function ForgotPasswordScreen({ onGoToLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [sent, setSent] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -317,14 +318,15 @@ function ForgotPasswordScreen({ onGoToLogin }) {
       const res = await fetch(`${API_BASE}/v1/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, app: "dashboard" }),
+        body: JSON.stringify({ email, app: "dashboard", turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
-        if (res.status === 429) {
-          throw new Error("Muitas tentativas seguidas — aguarde um minuto e tente de novo.");
-        }
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || "Não foi possível processar o pedido");
+        // .error é o formato do slowapi pro 429 por IP (@limiter.limit);
+        // .detail é o formato do FastAPI pros outros erros (Turnstile,
+        // 429 por email) — sem esse fallback, o 429 por IP cairia na
+        // mensagem genérica de baixo.
+        throw new Error(body.detail || body.error || "Não foi possível processar o pedido");
       }
       setSent(true);
     } catch (err) {
@@ -372,8 +374,9 @@ function ForgotPasswordScreen({ onGoToLogin }) {
       </p>
       <form onSubmit={handleSubmit}>
         <Field label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Turnstile onVerify={setTurnstileToken} />
         <ErrorNote message={error} />
-        <PrimaryButton type="submit" loading={loading}>Enviar link</PrimaryButton>
+        <PrimaryButton type="submit" loading={loading} disabled={TURNSTILE_SITE_KEY && !turnstileToken}>Enviar link</PrimaryButton>
       </form>
     </AuthShell>
   );

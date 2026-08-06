@@ -84,6 +84,7 @@ class ForgotPasswordIn(BaseModel):
     # do cliente ou pro painel administrativo interno (mesma tabela de
     # usuários serve os dois, mas os painéis são apps/domínios diferentes).
     app: str = "dashboard"
+    turnstile_token: str
 
     _normalize_email = field_validator("email")(_normalize_email)
 

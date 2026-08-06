@@ -2,6 +2,7 @@ import datetime
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from limits import parse as parse_rate_limit
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -21,6 +22,14 @@ router = APIRouter(prefix="/v1/auth", tags=["auth"])
 email_client = EmailClient()
 
 RESET_TOKEN_EXPIRY_HOURS = 1
+
+# Limite adicional por email, além do @limiter.limit por IP logo abaixo —
+# sem isso, alguém rodando de vários IPs/VPNs conseguiria inundar a caixa
+# de entrada de uma única pessoa com emails de redefinição. Chamado direto
+# via limiter.limiter (biblioteca `limits`, por baixo do slowapi) porque o
+# key_func do decorator @limiter.limit só recebe o Request puro, sem
+# acesso ao corpo (email) já parseado pelo FastAPI.
+FORGOT_PASSWORD_EMAIL_LIMIT = parse_rate_limit("3/15minutes")
 
 
 @router.post("/signup", response_model=SignupOut)
@@ -118,6 +127,18 @@ def forgot_password(request: Request, payload: ForgotPasswordIn, db: Session = D
     sempre a mesma mensagem genérica, exista ou não conta com esse email:
     sem isso, dava pra descobrir quais emails têm cadastro só testando
     aqui (enumeração de usuários)."""
+    if not verify_turnstile(payload.turnstile_token, get_client_ip(request)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Verificação de segurança falhou — tente novamente")
+
+    # Limite por email (ver FORGOT_PASSWORD_EMAIL_LIMIT acima) — aplica
+    # mesmo que o email não tenha conta, senão vira um jeito de descobrir
+    # que ele não tem limite (o que também vazaria enumeração).
+    if not limiter.limiter.hit(FORGOT_PASSWORD_EMAIL_LIMIT, "forgot-password-email", payload.email):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Muitos pedidos de redefinição para este email — aguarde alguns minutos e tente de novo.",
+        )
+
     generic_message = "Se existir uma conta com este email, enviaremos as instruções para redefinir a senha."
 
     # Busca por email sem ainda saber a empresa — mesmo bootstrap do login.

@@ -33,3 +33,6 @@ Thumbs.db
 
 # Zip original (conteúdo já extraído no repositório)
 files.zip
+
+.vercel
+.env*

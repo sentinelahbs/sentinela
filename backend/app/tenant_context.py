@@ -39,6 +39,14 @@ def set_invite_lookup(db: Session, token: str) -> None:
     db.execute(text("SET LOCAL app.lookup_invite_token = :token"), {"token": token})
 
 
+def set_password_reset_lookup(db: Session, token: str) -> None:
+    """Usado nos endpoints públicos de recuperação de senha
+    (/v1/auth/reset-password), onde quem chama ainda não conseguiu entrar
+    na própria conta — igual set_invite_lookup, a posse do token (32
+    bytes aleatórios) é a própria credencial de acesso a essa linha."""
+    db.execute(text("SET LOCAL app.lookup_reset_token = :token"), {"token": token})
+
+
 def set_auth_bootstrap(db: Session) -> None:
     """Usado só nos dois pontos de login/cadastro que precisam localizar
     um User por email SEM ainda saber a empresa (é justamente isso que

@@ -9,6 +9,9 @@ import {
   Circle,
   ArrowLeft,
   LogOut,
+  Eye,
+  EyeOff,
+  Check,
 } from "lucide-react";
 
 // Sem VITE_API_BASE definida (ex: rodando local com `npm run dev`),
@@ -41,6 +44,8 @@ const globalFonts = `
   .lp-btn:hover { opacity: 0.85; }
   .lp-spin { animation: lp-spin 0.8s linear infinite; }
   @keyframes lp-spin { to { transform: rotate(360deg); } }
+  @keyframes lp-fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .lp-fade-up { animation: lp-fade-up .25s ease both; }
 `;
 
 const inputStyle = {
@@ -129,7 +134,107 @@ function Turnstile({ onVerify }) {
   return <div ref={containerRef} style={{ margin: "12px 0", display: "flex", justifyContent: "center" }} />;
 }
 
-function LoginScreen({ onLogin }) {
+function Field({ label, type, ...props }) {
+  const [visible, setVisible] = useState(false);
+  const isPassword = type === "password";
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 5 }}>
+        {label}
+      </label>
+      {isPassword ? (
+        <div style={{ position: "relative" }}>
+          <input type={visible ? "text" : "password"} style={{ ...inputStyle, paddingRight: 34 }} {...props} />
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => setVisible((v) => !v)}
+            aria-label={visible ? "Ocultar senha" : "Mostrar senha"}
+            style={{
+              position: "absolute",
+              right: 8,
+              top: "50%",
+              transform: "translateY(-50%)",
+              border: "none",
+              background: "transparent",
+              color: COLORS.textFaint,
+              display: "flex",
+              padding: 2,
+              cursor: "pointer",
+            }}
+          >
+            {visible ? <EyeOff size={15} /> : <Eye size={15} />}
+          </button>
+        </div>
+      ) : (
+        <input type={type} style={inputStyle} {...props} />
+      )}
+    </div>
+  );
+}
+
+function Logo({ size = 20, fontSize = 16 }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+      <ShieldAlert size={size} color={COLORS.amber} />
+      <span style={{ fontWeight: 700, fontSize }}>VigIA</span>
+    </div>
+  );
+}
+
+// Shell compartilhado pelas telas de autenticação (login, esqueci a
+// senha, redefinir senha) — mesmo padrão visual usado no dashboard de
+// clientes (app-with-onboarding.jsx), adaptado ao formato "cartão" de
+// altura fixa já usado neste painel.
+function AuthShell({ children, width = 300 }) {
+  return (
+    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: COLORS.bg, color: COLORS.text, minHeight: 640, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 12, border: `1px solid ${COLORS.border}` }}>
+      <style>{globalFonts}</style>
+      <div className="lp-fade-up" style={{ width, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 28 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ErrorNote({ message }) {
+  if (!message) return null;
+  return (
+    <div style={{ marginTop: 6, marginBottom: 8, fontSize: 12.5, color: COLORS.red, display: "flex", alignItems: "center", gap: 6 }}>
+      <AlertTriangle size={13} />
+      {message}
+    </div>
+  );
+}
+
+function PrimaryButton({ children, loading, ...props }) {
+  return (
+    <button
+      className="lp-btn"
+      style={{
+        width: "100%",
+        padding: "10px 0",
+        borderRadius: 8,
+        border: "none",
+        background: COLORS.amber,
+        color: "#1a1200",
+        fontWeight: 600,
+        fontSize: 13.5,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+      }}
+      {...props}
+    >
+      {loading && <Loader2 size={14} className="lp-spin" />}
+      {children}
+    </button>
+  );
+}
+
+function LoginScreen({ onLogin, onGoToForgot }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [turnstileToken, setTurnstileToken] = useState("");
@@ -160,36 +265,159 @@ function LoginScreen({ onLogin }) {
   }
 
   return (
-    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: COLORS.bg, color: COLORS.text, minHeight: 640, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 12, border: `1px solid ${COLORS.border}` }}>
-      <style>{globalFonts}</style>
-      <form onSubmit={handleSubmit} style={{ width: 300, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 28 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <ShieldAlert size={20} color={COLORS.amber} />
-          <span style={{ fontWeight: 700, fontSize: 16 }}>VigIA</span>
-        </div>
+    <AuthShell width={300}>
+      <form onSubmit={handleSubmit}>
+        <Logo />
         <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginBottom: 20 }}>Painel administrativo interno</div>
 
-        <label style={{ fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 5 }}>Email</label>
-        <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
-
-        <label style={{ fontSize: 12, color: COLORS.textMuted, display: "block", margin: "14px 0 5px" }}>Senha</label>
-        <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
+        <Field label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Field label="Senha" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+        <div style={{ marginTop: -6, marginBottom: 14, textAlign: "right" }}>
+          <span className="lp-btn" onClick={onGoToForgot} style={{ fontSize: 12, color: COLORS.textMuted, textDecoration: "underline" }}>
+            Esqueceu a senha?
+          </span>
+        </div>
 
         <Turnstile onVerify={setTurnstileToken} />
-
-        {error && (
-          <div style={{ marginTop: 14, fontSize: 12.5, color: COLORS.red, display: "flex", alignItems: "center", gap: 6 }}>
-            <AlertTriangle size={13} />
-            {error}
-          </div>
-        )}
-
-        <button type="submit" disabled={loading || (TURNSTILE_SITE_KEY && !turnstileToken)} style={{ marginTop: 20, width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: COLORS.amber, color: "#1a1200", fontWeight: 600, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}>
-          {loading && <Loader2 size={14} className="lp-spin" />}
+        <ErrorNote message={error} />
+        <PrimaryButton type="submit" loading={loading} disabled={loading || (TURNSTILE_SITE_KEY && !turnstileToken)}>
           Entrar
-        </button>
+        </PrimaryButton>
       </form>
-    </div>
+    </AuthShell>
+  );
+}
+
+// --- RECUPERAÇÃO DE SENHA ------------------------------------------------
+// Mesmos endpoints /v1/auth/forgot-password e /v1/auth/reset-password do
+// dashboard de clientes — só muda app: "admin" (decide pra qual painel o
+// link do email aponta) e o parâmetro de URL lido abaixo em App():
+// ?reset_token= (não ?token=, que no dashboard de clientes é usado pelo
+// convite de equipe — aqui no admin esse parâmetro nem existe, mas
+// mantemos o mesmo nome pra reaproveitar o mesmo backend sem ambiguidade).
+
+function ForgotPasswordScreen({ onGoToLogin }) {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [sent, setSent] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, app: "admin" }),
+      });
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("Muitas tentativas seguidas — aguarde um minuto e tente de novo.");
+        }
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || "Não foi possível processar o pedido");
+      }
+      setSent(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <AuthShell width={320}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(52,211,153,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Check size={14} color={COLORS.teal} />
+          </div>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>Verifique seu email</span>
+        </div>
+        <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 4, marginBottom: 18, lineHeight: 1.5 }}>
+          Se existir uma conta com o email <strong style={{ color: COLORS.text }}>{email}</strong>, enviamos um
+          link para redefinir a senha. Ele expira em 1 hora.
+        </p>
+        <span className="lp-btn" onClick={onGoToLogin} style={{ color: COLORS.amber, textDecoration: "underline", fontSize: 12.5 }}>
+          Voltar para o login
+        </span>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell width={320}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <button
+          type="button"
+          className="lp-btn"
+          onClick={onGoToLogin}
+          style={{ border: "none", background: "transparent", color: COLORS.textMuted, display: "flex" }}
+        >
+          <ArrowLeft size={15} />
+        </button>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Esqueceu a senha?</div>
+      </div>
+      <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 18, lineHeight: 1.5 }}>
+        Informe o email da sua conta de administrador — vamos enviar um link para você criar uma nova senha.
+      </p>
+      <form onSubmit={handleSubmit}>
+        <Field label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        <ErrorNote message={error} />
+        <PrimaryButton type="submit" loading={loading}>Enviar link</PrimaryButton>
+      </form>
+    </AuthShell>
+  );
+}
+
+function ResetPasswordScreen({ token, onReset }) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (password !== confirmPassword) {
+      setError("As senhas não coincidem");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
+      });
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("Muitas tentativas seguidas — aguarde um minuto e tente de novo.");
+        }
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || "Não foi possível redefinir a senha — o link pode ter expirado");
+      }
+      const data = await res.json();
+      onReset(data.access_token);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthShell width={320}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Criar nova senha</div>
+      <form onSubmit={handleSubmit}>
+        <Field label="Nova senha" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Field label="Confirme a nova senha" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+        <ErrorNote message={error} />
+        <PrimaryButton type="submit" loading={loading}>Redefinir senha e entrar</PrimaryButton>
+      </form>
+    </AuthShell>
   );
 }
 
@@ -405,6 +633,7 @@ export default function App() {
   const [token, setToken] = useState(null);
   const [me, setMe] = useState(null);
   const [checkingMe, setCheckingMe] = useState(false);
+  const [view, setView] = useState("login"); // "login" | "forgot"
 
   useEffect(() => {
     if (!token) {
@@ -424,8 +653,22 @@ export default function App() {
       });
   }, [token]);
 
+  // Parâmetro próprio (não "token") — este painel não tem fluxo de
+  // convite, mas usa o mesmo nome do dashboard de clientes pra reaproveitar
+  // o mesmo backend de recuperação de senha sem qualquer ambiguidade.
+  const resetToken =
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset_token") : null;
+
+  if (!token && resetToken) {
+    return <ResetPasswordScreen token={resetToken} onReset={setToken} />;
+  }
+
+  if (!token && view === "forgot") {
+    return <ForgotPasswordScreen onGoToLogin={() => setView("login")} />;
+  }
+
   if (!token) {
-    return <LoginScreen onLogin={setToken} />;
+    return <LoginScreen onLogin={setToken} onGoToForgot={() => setView("forgot")} />;
   }
 
   if (checkingMe || !me) {

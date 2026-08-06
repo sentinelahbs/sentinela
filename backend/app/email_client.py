@@ -23,6 +23,10 @@ EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "VigIA")
 
 # URL do dashboard web — usada para montar o link do convite.
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:5173")
+# URL do painel administrativo interno — separado do dashboard de
+# clientes (domínio/app diferente), usado quando o pedido de redefinição
+# de senha vem de lá (ver ForgotPasswordIn.app).
+ADMIN_BASE_URL = os.environ.get("ADMIN_BASE_URL", "http://localhost:5174")
 
 
 LOGO_HTML = """
@@ -91,6 +95,47 @@ class EmailClient:
             f"Sua conta e a primeira loja da {company_name} já estão prontas no VigIA.\n"
             f"Acesse o painel em: {APP_BASE_URL}\n\n"
             f"A chave de acesso da loja fica disponível dentro do painel, na tela da própria loja."
+        )
+
+        self.send(to_email, subject, html_body, text_body)
+
+    def send_password_reset_email(self, to_email: str, name: str, token: str, app: str = "dashboard"):
+        # ?reset_token= (não ?token=, que já é usado pelo link de convite
+        # de equipe) — evita que os dois fluxos se confundam quando o
+        # usuário abre o link recebido por email.
+        base_url = ADMIN_BASE_URL if app == "admin" else APP_BASE_URL
+        link = f"{base_url}?reset_token={token}"
+
+        subject = "Redefinição de senha — VigIA"
+
+        safe_name = html.escape(name)
+
+        html_body = f"""
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          {LOGO_HTML}
+          <p>Olá, {safe_name},</p>
+          <p>Recebemos um pedido para redefinir a senha da sua conta no VigIA.
+          Se foi você, clique no botão abaixo para escolher uma nova senha.</p>
+          <p style="margin: 24px 0;">
+            <a href="{link}"
+               style="background:#F2A93B;color:#1a1200;padding:10px 18px;
+                      border-radius:8px;text-decoration:none;font-weight:600;">
+              Redefinir senha
+            </a>
+          </p>
+          <p style="color:#888;font-size:13px;">
+            Este link expira em 1 hora. Se você não pediu essa redefinição,
+            pode ignorar este email — sua senha continua a mesma.
+          </p>
+        </div>
+        """
+
+        text_body = (
+            f"Olá, {name},\n\n"
+            f"Recebemos um pedido para redefinir a senha da sua conta no VigIA.\n"
+            f"Se foi você, acesse o link abaixo para escolher uma nova senha:\n{link}\n\n"
+            f"Este link expira em 1 hora. Se você não pediu essa redefinição, "
+            f"pode ignorar este email — sua senha continua a mesma."
         )
 
         self.send(to_email, subject, html_body, text_body)

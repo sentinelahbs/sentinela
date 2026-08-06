@@ -78,6 +78,25 @@ class TokenOut(BaseModel):
     token_type: str = "bearer"
 
 
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+    # "dashboard" ou "admin" — decide se o link do email aponta pro painel
+    # do cliente ou pro painel administrativo interno (mesma tabela de
+    # usuários serve os dois, mas os painéis são apps/domínios diferentes).
+    app: str = "dashboard"
+
+    _normalize_email = field_validator("email")(_normalize_email)
+
+
+class ForgotPasswordOut(BaseModel):
+    detail: str
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    password: str
+
+
 class SignupOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

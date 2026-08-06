@@ -142,6 +142,21 @@ class TeamInvite(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PasswordResetToken(Base):
+    """Token de recuperação de senha. Mesmo princípio do TeamInvite: a
+    posse do token (32 bytes aleatórios) é a credencial — sem ela, quem
+    pede a redefinição ainda não conseguiu entrar na própria conta."""
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    company_id = Column(UUID(as_uuid=False), ForeignKey("companies.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    token = Column(String, nullable=False, unique=True)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Alert(Base):
     __tablename__ = "alerts"
 

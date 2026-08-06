@@ -244,7 +244,7 @@ function Turnstile({ onVerify }) {
   return <div ref={containerRef} style={{ margin: "12px 0", display: "flex", justifyContent: "center" }} />;
 }
 
-function LoginScreen({ onLogin, onGoToSignup }) {
+function LoginScreen({ onLogin, onGoToSignup, onGoToForgot }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -282,6 +282,11 @@ function LoginScreen({ onLogin, onGoToSignup }) {
       <form onSubmit={handleSubmit}>
         <Field label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         <Field label="Senha" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+        <div style={{ marginTop: -6, marginBottom: 14, textAlign: "right" }}>
+          <span className="lp-btn" onClick={onGoToForgot} style={{ fontSize: 12, color: COLORS.textMuted, textDecoration: "underline" }}>
+            Esqueceu a senha?
+          </span>
+        </div>
         <Turnstile onVerify={setTurnstileToken} />
         <ErrorNote message={error} />
         <PrimaryButton type="submit" loading={loading} disabled={TURNSTILE_SITE_KEY && !turnstileToken}>Entrar</PrimaryButton>
@@ -292,6 +297,133 @@ function LoginScreen({ onLogin, onGoToSignup }) {
           Criar conta
         </span>
       </div>
+    </AuthShell>
+  );
+}
+
+// --- RECUPERAÇÃO DE SENHA ------------------------------------------------
+
+function ForgotPasswordScreen({ onGoToLogin }) {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [sent, setSent] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, app: "dashboard" }),
+      });
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("Muitas tentativas seguidas — aguarde um minuto e tente de novo.");
+        }
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || "Não foi possível processar o pedido");
+      }
+      setSent(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <AuthShell width={380}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(52,211,153,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Check size={14} color={COLORS.teal} />
+          </div>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>Verifique seu email</span>
+        </div>
+        <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 4, marginBottom: 18, lineHeight: 1.5 }}>
+          Se existir uma conta com o email <strong style={{ color: COLORS.text }}>{email}</strong>, enviamos um
+          link para redefinir a senha. Ele expira em 1 hora.
+        </p>
+        <span className="lp-btn" onClick={onGoToLogin} style={{ color: COLORS.amber, textDecoration: "underline", fontSize: 12.5 }}>
+          Voltar para o login
+        </span>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell width={380}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <button
+          type="button"
+          className="lp-btn"
+          onClick={onGoToLogin}
+          style={{ border: "none", background: "transparent", color: COLORS.textMuted, display: "flex" }}
+        >
+          <ArrowLeft size={15} />
+        </button>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Esqueceu a senha?</div>
+      </div>
+      <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 18, lineHeight: 1.5 }}>
+        Informe o email da sua conta — vamos enviar um link para você criar uma nova senha.
+      </p>
+      <form onSubmit={handleSubmit}>
+        <Field label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        <ErrorNote message={error} />
+        <PrimaryButton type="submit" loading={loading}>Enviar link</PrimaryButton>
+      </form>
+    </AuthShell>
+  );
+}
+
+function ResetPasswordScreen({ token, onReset }) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (password !== confirmPassword) {
+      setError("As senhas não coincidem");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
+      });
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("Muitas tentativas seguidas — aguarde um minuto e tente de novo.");
+        }
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || "Não foi possível redefinir a senha — o link pode ter expirado");
+      }
+      const data = await res.json();
+      onReset(data.access_token);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthShell width={380}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Criar nova senha</div>
+      <form onSubmit={handleSubmit}>
+        <Field label="Nova senha" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Field label="Confirme a nova senha" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+        <ErrorNote message={error} />
+        <PrimaryButton type="submit" loading={loading}>Redefinir senha e entrar</PrimaryButton>
+      </form>
     </AuthShell>
   );
 }
@@ -1767,7 +1899,7 @@ function AcceptInviteScreen({ token, onAccepted }) {
 // --- raiz: login / signup / convite / dashboard -----------------------------
 
 export default function App() {
-  const [view, setView] = useState("login"); // "login" | "signup"
+  const [view, setView] = useState("login"); // "login" | "signup" | "forgot"
   // Sessão persiste no localStorage — sem isso, dar refresh na página
   // (ou fechar e reabrir o navegador) sempre voltava pro login, mesmo
   // com o token ainda válido.
@@ -1784,6 +1916,15 @@ export default function App() {
 
   const inviteToken =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("token") : null;
+  // Parâmetro diferente de "token" (usado pelo convite de equipe acima) —
+  // evita que os dois fluxos se confundam quando o usuário abre o link
+  // recebido por email.
+  const resetToken =
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset_token") : null;
+
+  if (!token && resetToken) {
+    return <ResetPasswordScreen token={resetToken} onReset={setToken} />;
+  }
 
   if (!token && inviteToken) {
     return <AcceptInviteScreen token={inviteToken} onAccepted={setToken} />;
@@ -1797,5 +1938,15 @@ export default function App() {
     return <OnboardingScreen onFinished={setToken} onGoToLogin={() => setView("login")} />;
   }
 
-  return <LoginScreen onLogin={setToken} onGoToSignup={() => setView("signup")} />;
+  if (view === "forgot") {
+    return <ForgotPasswordScreen onGoToLogin={() => setView("login")} />;
+  }
+
+  return (
+    <LoginScreen
+      onLogin={setToken}
+      onGoToSignup={() => setView("signup")}
+      onGoToForgot={() => setView("forgot")}
+    />
+  );
 }

@@ -1,7 +1,7 @@
 import datetime
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from limits import parse as parse_rate_limit
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -10,10 +10,13 @@ from database import get_db
 from models import User, Company, Store, UserRole, PasswordResetToken
 from rate_limit import limiter, get_client_ip
 from schemas import (
-    LoginIn, TokenOut, SignupIn, SignupOut, MeOut,
+    LoginIn, SignupIn, SignupOut, MeOut,
     ForgotPasswordIn, ForgotPasswordOut, ResetPasswordIn,
 )
-from auth import verify_password, hash_password, create_access_token, get_current_user
+from auth import (
+    verify_password, hash_password, create_access_token, get_current_user,
+    set_auth_cookie, clear_auth_cookie, require_csrf_header, user_to_me_out,
+)
 from email_client import EmailClient
 from turnstile import verify_turnstile
 from tenant_context import set_auth_bootstrap, set_company_context, set_password_reset_lookup
@@ -34,13 +37,14 @@ FORGOT_PASSWORD_EMAIL_LIMIT = parse_rate_limit("3/15minutes")
 
 @router.post("/signup", response_model=SignupOut)
 @limiter.limit("5/minute")
-def signup(request: Request, payload: SignupIn, db: Session = Depends(get_db)):
+def signup(request: Request, response: Response, payload: SignupIn, db: Session = Depends(get_db)):
     """Onboarding de um novo cliente do SaaS: cria a empresa, a primeira
     loja (com sua própria API key pra box de detecção) e o usuário owner,
     tudo numa única chamada — é o que alimenta a tela de cadastro."""
 
     if not verify_turnstile(payload.turnstile_token, get_client_ip(request)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Verificação de segurança falhou — tente novamente")
+    require_csrf_header(request)
 
     # Checagem de duplicidade precisa enxergar TODAS as empresas (email é
     # único globalmente) — ainda não existe uma empresa/JWT nesse momento.
@@ -98,14 +102,16 @@ def signup(request: Request, payload: SignupIn, db: Session = Depends(get_db)):
         print(f"[auth] Falha ao enviar email de boas-vindas: {exc}")
 
     token = create_access_token(user_id=user.id, company_id=company_id)
-    return SignupOut(access_token=token, store_id=store.id, store_edge_api_key=store.edge_api_key)
+    set_auth_cookie(response, token)
+    return SignupOut(store_id=store.id, store_edge_api_key=store.edge_api_key)
 
 
-@router.post("/login", response_model=TokenOut)
+@router.post("/login", response_model=MeOut)
 @limiter.limit("10/minute")
-def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
+def login(request: Request, response: Response, payload: LoginIn, db: Session = Depends(get_db)):
     if not verify_turnstile(payload.turnstile_token, get_client_ip(request)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Verificação de segurança falhou — tente novamente")
+    require_csrf_header(request)
 
     # Login busca o usuário pelo email antes de saber a empresa dele —
     # é justamente essa consulta que descobre isso.
@@ -116,7 +122,8 @@ def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email ou senha inválidos")
 
     token = create_access_token(user_id=user.id, company_id=user.company_id)
-    return TokenOut(access_token=token)
+    set_auth_cookie(response, token)
+    return user_to_me_out(user)
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordOut)
@@ -191,9 +198,11 @@ def forgot_password(request: Request, payload: ForgotPasswordIn, db: Session = D
     return ForgotPasswordOut(detail=generic_message)
 
 
-@router.post("/reset-password", response_model=TokenOut)
+@router.post("/reset-password", response_model=MeOut)
 @limiter.limit("10/minute")
-def reset_password(request: Request, payload: ResetPasswordIn, db: Session = Depends(get_db)):
+def reset_password(request: Request, response: Response, payload: ResetPasswordIn, db: Session = Depends(get_db)):
+    require_csrf_header(request)
+
     # Quem chama ainda não tem conta acessível — a posse do token é a
     # credencial (igual ao aceite de convite).
     set_password_reset_lookup(db, payload.token)
@@ -226,17 +235,28 @@ def reset_password(request: Request, payload: ResetPasswordIn, db: Session = Dep
     user.password_hash = hash_password(payload.password)
     reset_token.used_at = datetime.datetime.utcnow()
     db.commit()
+    # commit() encerra a transação e reseta o SET LOCAL — precisa religar
+    # antes do refresh() abaixo (mesmo padrão do signup/aceite de convite),
+    # senão o RLS bloqueia o SELECT que o refresh dispara.
+    set_company_context(db, company_id)
+    db.refresh(user)
 
     token_value = create_access_token(user_id=user_id, company_id=company_id)
-    return TokenOut(access_token=token_value)
+    set_auth_cookie(response, token_value)
+    return user_to_me_out(user)
+
+
+@router.post("/logout")
+def logout(request: Request, response: Response):
+    require_csrf_header(request)
+    clear_auth_cookie(response)
+    return {"detail": "Sessão encerrada"}
 
 
 @router.get("/me", response_model=MeOut)
 def me(user: User = Depends(get_current_user)):
-    """Usado pelo frontend para saber, logo após o login, se essa pessoa
-    tem acesso ao painel administrativo interno (is_platform_admin) —
-    decide se mostra o link para o admin ou não."""
-    return MeOut(
-        id=user.id, name=user.name, email=user.email,
-        role=user.role.value, is_platform_admin=user.is_platform_admin,
-    )
+    """Usado pelo frontend pra restaurar a sessão ao carregar a página
+    (o cookie HttpOnly não pode ser lido por JS, então isso aqui é como
+    o front sabe se já está autenticado) e pra saber se essa pessoa tem
+    acesso ao painel administrativo interno (is_platform_admin)."""
+    return user_to_me_out(user)

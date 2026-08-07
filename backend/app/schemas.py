@@ -73,11 +73,6 @@ class SignupIn(BaseModel):
     _normalize_email = field_validator("email")(_normalize_email)
 
 
-class TokenOut(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
 class ForgotPasswordIn(BaseModel):
     email: EmailStr
     # "dashboard" ou "admin" — decide se o link do email aponta pro painel
@@ -99,8 +94,6 @@ class ResetPasswordIn(BaseModel):
 
 
 class SignupOut(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
     store_id: str
     store_edge_api_key: str
 

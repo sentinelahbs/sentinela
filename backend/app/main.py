@@ -32,6 +32,12 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Necessário pro cookie HttpOnly de sessão viajar nas respostas/
+    # requisições (fetch com credentials: "include") — sem isso o
+    # navegador ignora tanto o Set-Cookie quanto o cookie na volta.
+    # Exige que allow_origins seja uma lista explícita (nunca "*"); já é
+    # o caso aqui, tanto local quanto em produção.
+    allow_credentials=True,
 )
 
 app.include_router(auth.router)

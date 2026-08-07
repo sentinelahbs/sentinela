@@ -258,7 +258,8 @@ function LoginScreen({ onLogin, onGoToSignup, onGoToForgot }) {
     try {
       const res = await fetch(`${API_BASE}/v1/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, password, turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
@@ -268,8 +269,10 @@ function LoginScreen({ onLogin, onGoToSignup, onGoToForgot }) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || "Email ou senha inválidos");
       }
+      // O token de sessão agora vem só via cookie HttpOnly (Set-Cookie na
+      // resposta) — o corpo traz os dados do usuário (MeOut), não o token.
       const data = await res.json();
-      onLogin(data.access_token);
+      onLogin(data);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -317,7 +320,8 @@ function ForgotPasswordScreen({ onGoToLogin }) {
     try {
       const res = await fetch(`${API_BASE}/v1/auth/forgot-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, app: "dashboard", turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
@@ -399,7 +403,8 @@ function ResetPasswordScreen({ token, onReset }) {
     try {
       const res = await fetch(`${API_BASE}/v1/auth/reset-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ token, password }),
       });
       if (!res.ok) {
@@ -410,7 +415,7 @@ function ResetPasswordScreen({ token, onReset }) {
         throw new Error(body.detail || "Não foi possível redefinir a senha — o link pode ter expirado");
       }
       const data = await res.json();
-      onReset(data.access_token);
+      onReset(data);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -446,7 +451,7 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [result, setResult] = useState(null); // { access_token, store_id, store_edge_api_key }
+  const [result, setResult] = useState(null); // { store_id, store_edge_api_key }
   const [copied, setCopied] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
 
@@ -470,7 +475,8 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
     try {
       const res = await fetch(`${API_BASE}/v1/auth/signup`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ ...form, turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
@@ -551,7 +557,7 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
           (campo <code style={{ color: COLORS.textMuted }}>api_key</code> da loja) para que os alertas cheguem até este painel.
         </div>
 
-        <PrimaryButton onClick={() => onFinished(result.access_token)}>
+        <PrimaryButton onClick={() => onFinished()}>
           Ir para o painel
           <ArrowRight size={14} />
         </PrimaryButton>
@@ -623,14 +629,15 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
 
 // --- API client + peças do dashboard (mesmas da versão anterior) --------
 
-function useApiClient(token, onUnauthorized) {
+function useApiClient(onUnauthorized) {
   return useCallback(
     async (path, options = {}) => {
       const res = await fetch(`${API_BASE}${path}`, {
         ...options,
+        credentials: "include",
         headers: {
           ...(options.headers || {}),
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          "X-Requested-With": "XMLHttpRequest",
         },
       });
       if (res.status === 401) {
@@ -644,7 +651,7 @@ function useApiClient(token, onUnauthorized) {
       if (res.status === 204) return null;
       return res.json();
     },
-    [token, onUnauthorized]
+    [onUnauthorized]
   );
 }
 
@@ -1407,8 +1414,8 @@ function useIsMobile() {
   return isMobile;
 }
 
-function Dashboard({ token, onLogout }) {
-  const api = useApiClient(token, onLogout);
+function Dashboard({ onLogout }) {
+  const api = useApiClient(onLogout);
 
   const [stores, setStores] = useState([]);
   const [selectedStore, setSelectedStore] = useState("all");
@@ -1839,7 +1846,8 @@ function AcceptInviteScreen({ token, onAccepted }) {
     try {
       const res = await fetch(`${API_BASE}/v1/invites/${token}/accept`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ password }),
       });
       if (!res.ok) {
@@ -1847,7 +1855,7 @@ function AcceptInviteScreen({ token, onAccepted }) {
         throw new Error(body.detail || "Não foi possível aceitar o convite");
       }
       const data = await res.json();
-      onAccepted(data.access_token);
+      onAccepted(data);
     } catch (err) {
       setSubmitError(err.message);
     } finally {
@@ -1903,18 +1911,42 @@ function AcceptInviteScreen({ token, onAccepted }) {
 
 export default function App() {
   const [view, setView] = useState("login"); // "login" | "signup" | "forgot"
-  // Sessão persiste no localStorage — sem isso, dar refresh na página
-  // (ou fechar e reabrir o navegador) sempre voltava pro login, mesmo
-  // com o token ainda válido.
-  const [token, setTokenState] = useState(() => localStorage.getItem("vigia_token"));
+  const [authenticated, setAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
-  function setToken(newToken) {
-    if (newToken) {
-      localStorage.setItem("vigia_token", newToken);
-    } else {
-      localStorage.removeItem("vigia_token");
+  // A sessão agora vive num cookie HttpOnly (não mais em localStorage) —
+  // o front não consegue ler o token, então descobre se já está
+  // autenticado perguntando pro backend. Roda uma vez ao carregar a
+  // página (é assim que a sessão sobrevive a um F5).
+  const refreshAuth = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/me`, {
+        credentials: "include",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+      setAuthenticated(res.ok);
+    } catch {
+      setAuthenticated(false);
+    } finally {
+      setCheckingAuth(false);
     }
-    setTokenState(newToken);
+  }, []);
+
+  useEffect(() => {
+    refreshAuth();
+  }, [refreshAuth]);
+
+  async function handleLogout() {
+    try {
+      await fetch(`${API_BASE}/v1/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      });
+    } catch {
+      // mesmo se a chamada falhar, ainda derruba a sessão localmente
+    }
+    setAuthenticated(false);
   }
 
   const inviteToken =
@@ -1925,20 +1957,31 @@ export default function App() {
   const resetToken =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset_token") : null;
 
-  if (!token && resetToken) {
-    return <ResetPasswordScreen token={resetToken} onReset={setToken} />;
+  if (checkingAuth) {
+    return (
+      <AuthShell width={280}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: COLORS.textMuted, fontSize: 13 }}>
+          <Loader2 size={14} className="lp-spin" />
+          Verificando sessão…
+        </div>
+      </AuthShell>
+    );
   }
 
-  if (!token && inviteToken) {
-    return <AcceptInviteScreen token={inviteToken} onAccepted={setToken} />;
+  if (!authenticated && resetToken) {
+    return <ResetPasswordScreen token={resetToken} onReset={() => setAuthenticated(true)} />;
   }
 
-  if (token) {
-    return <Dashboard token={token} onLogout={() => setToken(null)} />;
+  if (!authenticated && inviteToken) {
+    return <AcceptInviteScreen token={inviteToken} onAccepted={() => setAuthenticated(true)} />;
+  }
+
+  if (authenticated) {
+    return <Dashboard onLogout={handleLogout} />;
   }
 
   if (view === "signup") {
-    return <OnboardingScreen onFinished={setToken} onGoToLogin={() => setView("login")} />;
+    return <OnboardingScreen onFinished={() => setAuthenticated(true)} onGoToLogin={() => setView("login")} />;
   }
 
   if (view === "forgot") {
@@ -1947,7 +1990,7 @@ export default function App() {
 
   return (
     <LoginScreen
-      onLogin={setToken}
+      onLogin={() => setAuthenticated(true)}
       onGoToSignup={() => setView("signup")}
       onGoToForgot={() => setView("forgot")}
     />

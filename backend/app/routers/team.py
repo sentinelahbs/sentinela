@@ -16,7 +16,7 @@ sozinho se não for aceito.
 import secrets
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -24,9 +24,12 @@ from database import get_db
 from models import User, Store, Company, TeamInvite, UserRole
 from schemas import (
     TeamInviteIn, TeamInviteOut, TeamMemberOut,
-    InviteDetailsOut, InviteAcceptIn, TokenOut,
+    InviteDetailsOut, InviteAcceptIn, MeOut,
 )
-from auth import get_current_user, hash_password, create_access_token
+from auth import (
+    get_current_user, hash_password, create_access_token,
+    set_auth_cookie, require_csrf_header, user_to_me_out,
+)
 from email_client import EmailClient
 from tenant_context import set_invite_lookup, set_company_context, set_auth_bootstrap
 
@@ -205,8 +208,10 @@ def get_invite_details(token: str, db: Session = Depends(get_db)):
     )
 
 
-@invite_router.post("/{token}/accept", response_model=TokenOut)
-def accept_invite(token: str, payload: InviteAcceptIn, db: Session = Depends(get_db)):
+@invite_router.post("/{token}/accept", response_model=MeOut)
+def accept_invite(token: str, payload: InviteAcceptIn, request: Request, response: Response, db: Session = Depends(get_db)):
+    require_csrf_header(request)
+
     # Mesma lógica do GET acima: posse do token é a credencial aqui, e
     # essa mesma liberação vale pro UPDATE de accepted_at mais abaixo
     # (mesma transação).
@@ -246,4 +251,5 @@ def accept_invite(token: str, payload: InviteAcceptIn, db: Session = Depends(get
     db.refresh(user)
 
     token_value = create_access_token(user_id=user.id, company_id=company_id)
-    return TokenOut(access_token=token_value)
+    set_auth_cookie(response, token_value)
+    return user_to_me_out(user)

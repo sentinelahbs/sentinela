@@ -77,11 +77,12 @@ function StatusBadge({ status }) {
   );
 }
 
-function useApiClient(token, onUnauthorized) {
+function useApiClient(onUnauthorized) {
   return useCallback(
     async (path) => {
       const res = await fetch(`${API_BASE}${path}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
       });
       if (res.status === 401) {
         onUnauthorized();
@@ -93,7 +94,7 @@ function useApiClient(token, onUnauthorized) {
       }
       return res.json();
     },
-    [token, onUnauthorized]
+    [onUnauthorized]
   );
 }
 
@@ -248,15 +249,18 @@ function LoginScreen({ onLogin, onGoToForgot }) {
     try {
       const res = await fetch(`${API_BASE}/v1/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, password, turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || "Email ou senha inválidos");
       }
+      // O token de sessão agora vem só via cookie HttpOnly (Set-Cookie na
+      // resposta) — o corpo traz os dados do usuário (MeOut), não o token.
       const data = await res.json();
-      onLogin(data.access_token);
+      onLogin(data);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -310,7 +314,8 @@ function ForgotPasswordScreen({ onGoToLogin }) {
     try {
       const res = await fetch(`${API_BASE}/v1/auth/forgot-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ email, app: "admin", turnstile_token: turnstileToken }),
       });
       if (!res.ok) {
@@ -392,7 +397,8 @@ function ResetPasswordScreen({ token, onReset }) {
     try {
       const res = await fetch(`${API_BASE}/v1/auth/reset-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
         body: JSON.stringify({ token, password }),
       });
       if (!res.ok) {
@@ -403,7 +409,7 @@ function ResetPasswordScreen({ token, onReset }) {
         throw new Error(body.detail || "Não foi possível redefinir a senha — o link pode ter expirado");
       }
       const data = await res.json();
-      onReset(data.access_token);
+      onReset(data);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -517,8 +523,8 @@ function CompanyDetail({ api, companyId, onBack }) {
   );
 }
 
-function AdminPanel({ token, onLogout }) {
-  const api = useApiClient(token, onLogout);
+function AdminPanel({ onLogout }) {
+  const api = useApiClient(onLogout);
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -633,28 +639,45 @@ function Stat({ icon, label, value, color }) {
 }
 
 export default function App() {
-  const [token, setToken] = useState(null);
   const [me, setMe] = useState(null);
-  const [checkingMe, setCheckingMe] = useState(false);
+  const [checkingMe, setCheckingMe] = useState(true);
   const [view, setView] = useState("login"); // "login" | "forgot"
 
-  useEffect(() => {
-    if (!token) {
-      setMe(null);
-      return;
-    }
+  // A sessão agora vive num cookie HttpOnly (não mais em localStorage/
+  // state) — o front não consegue ler o token, então descobre se já está
+  // autenticado (e se é platform admin) perguntando pro backend. Roda
+  // uma vez ao carregar a página, é assim que a sessão sobrevive a um F5.
+  const refreshMe = useCallback(() => {
     setCheckingMe(true);
-    fetch(`${API_BASE}/v1/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API_BASE}/v1/auth/me`, {
+      credentials: "include",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    })
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data) => {
         setMe(data);
         setCheckingMe(false);
       })
       .catch(() => {
-        setToken(null);
+        setMe(null);
         setCheckingMe(false);
       });
-  }, [token]);
+  }, []);
+
+  useEffect(() => {
+    refreshMe();
+  }, [refreshMe]);
+
+  function handleLogout() {
+    fetch(`${API_BASE}/v1/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    }).catch(() => {
+      // mesmo se a chamada falhar, ainda derruba a sessão localmente
+    });
+    setMe(null);
+  }
 
   // Parâmetro próprio (não "token") — este painel não tem fluxo de
   // convite, mas usa o mesmo nome do dashboard de clientes pra reaproveitar
@@ -662,19 +685,7 @@ export default function App() {
   const resetToken =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset_token") : null;
 
-  if (!token && resetToken) {
-    return <ResetPasswordScreen token={resetToken} onReset={setToken} />;
-  }
-
-  if (!token && view === "forgot") {
-    return <ForgotPasswordScreen onGoToLogin={() => setView("login")} />;
-  }
-
-  if (!token) {
-    return <LoginScreen onLogin={setToken} onGoToForgot={() => setView("forgot")} />;
-  }
-
-  if (checkingMe || !me) {
+  if (checkingMe) {
     return (
       <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: COLORS.bg, color: COLORS.textFaint, minHeight: 640, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 12, border: `1px solid ${COLORS.border}`, fontSize: 13 }}>
         <style>{globalFonts}</style>
@@ -683,9 +694,21 @@ export default function App() {
     );
   }
 
-  if (!me.is_platform_admin) {
-    return <AccessDenied onLogout={() => setToken(null)} />;
+  if (!me && resetToken) {
+    return <ResetPasswordScreen token={resetToken} onReset={(data) => setMe(data)} />;
   }
 
-  return <AdminPanel token={token} onLogout={() => setToken(null)} />;
+  if (!me && view === "forgot") {
+    return <ForgotPasswordScreen onGoToLogin={() => setView("login")} />;
+  }
+
+  if (!me) {
+    return <LoginScreen onLogin={(data) => setMe(data)} onGoToForgot={() => setView("forgot")} />;
+  }
+
+  if (!me.is_platform_admin) {
+    return <AccessDenied onLogout={handleLogout} />;
+  }
+
+  return <AdminPanel onLogout={handleLogout} />;
 }

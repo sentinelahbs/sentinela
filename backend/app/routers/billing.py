@@ -259,6 +259,11 @@ async def asaas_webhook(
     # documentação do Asaas — adicione outros conforme for precisando.
     if event in ("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"):
         company.subscription_status = "active"
+        # Só na PRIMEIRA confirmação — renovações mensais seguintes não
+        # devem reiniciar a fila de onboarding nem mexer na ordenação do
+        # painel admin (ver /v1/admin/onboarding).
+        if company.payment_confirmed_at is None:
+            company.payment_confirmed_at = datetime.datetime.utcnow()
         # só agora, com pagamento confirmado (seja da assinatura nova ou
         # de um upgrade avulso), o limite de câmeras é efetivamente
         # liberado — soma ao limite existente

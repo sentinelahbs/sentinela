@@ -20,6 +20,7 @@ from detector import PerceptionPipeline, DETECTION_BACKEND
 from pose_rules import SuspiciousBehaviorRule
 from clip_recorder import ClipRecorder
 from alert_client import AlertClient
+from heartbeat import HeartbeatSender
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("edge-detection")
@@ -110,5 +111,15 @@ def run_camera(store_cfg, camera_cfg):
 
 
 if __name__ == "__main__":
+    # Heartbeat é por LOJA, não por câmera — se no futuro isso virar um
+    # processo por câmera (ver comentário abaixo), só o primeiro processo
+    # da loja deveria iniciar o sender, pra não mandar heartbeats
+    # duplicados. Por agora, MVP de uma câmera só, sem esse problema.
+    HeartbeatSender(
+        api_base_url=EXAMPLE_STORE.api_base_url,
+        api_key=EXAMPLE_STORE.api_key,
+        store_id=EXAMPLE_STORE.store_id,
+    ).start()
+
     # MVP: uma câmera. Em produção, um processo (ou thread) por câmera da loja.
     run_camera(EXAMPLE_STORE, EXAMPLE_STORE.cameras[0])

@@ -33,6 +33,9 @@ class StoreOut(BaseModel):
     id: str
     name: str
     city: Optional[str]
+    onboarding_status: str
+    last_seen_at: Optional[datetime]
+    online: bool
 
     class Config:
         from_attributes = True
@@ -164,6 +167,21 @@ class AdminCompanyDetailOut(BaseModel):
     cameras_used: int
     stores: list[StoreOut]
     users: list[TeamMemberOut]
+
+
+class AdminOnboardingOut(BaseModel):
+    store_id: str
+    store_name: str
+    company_id: str
+    company_name: str
+    payment_confirmed_at: Optional[str]
+    onboarding_status: str
+    online: bool
+    last_seen_at: Optional[str]
+
+
+class OnboardingStatusIn(BaseModel):
+    status: str  # "pending" | "in_progress" | "completed" — validado no router
 
 
 class CameraOut(BaseModel):

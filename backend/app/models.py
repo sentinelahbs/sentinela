@@ -24,6 +24,12 @@ def gen_uuid():
     return str(uuid.uuid4())
 
 
+# Considerado offline depois de 3 heartbeats perdidos seguidos (heartbeat
+# a cada ~60s no lado da box — ver heartbeat_sender do módulo de detecção)
+# em vez de 1, pra não marcar como offline por causa de um blink de rede.
+ONLINE_THRESHOLD_SECONDS = 180
+
+
 class AlertStatus(str, enum.Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
@@ -62,6 +68,10 @@ class Company(Base):
     # webhook confirma o pagamento (ver routers/billing.py), para não
     # liberar câmeras sem cobrança confirmada.
     pending_camera_packages = Column(Integer, nullable=True)
+    # Setado pelo webhook só na PRIMEIRA confirmação de pagamento (não
+    # em renovações mensais seguintes) — é o gatilho e a referência de
+    # ordenação da fila de onboarding no painel admin (ver routers/admin.py).
+    payment_confirmed_at = Column(DateTime, nullable=True)
 
     stores = relationship("Store", back_populates="company")
     users = relationship("User", back_populates="company")
@@ -86,6 +96,25 @@ class Store(Base):
         "para fins de segurança patrimonial, conforme LGPD."
     ))
     clip_retention_days = Column(String, default="30")
+
+    # Onboarding pós-pagamento — string livre (não Enum do Postgres) pelo
+    # mesmo motivo de Company.subscription_status: evita migração pra
+    # adicionar um valor novo no futuro. Valores usados hoje: "pending"
+    # (aguardando conexão das câmeras), "in_progress" (pelo menos um
+    # heartbeat já chegou), "completed" (validado manualmente pelo admin
+    # — nunca automático, câmera online não garante setup correto).
+    onboarding_status = Column(String, nullable=False, default="pending")
+    # Atualizado a cada heartbeat da box (ver POST /v1/stores/{id}/heartbeat).
+    # "Online" é derivado na hora da leitura (last_seen_at recente), não
+    # guardado como booleano — evita um job de fundo só pra manter isso
+    # atualizado.
+    last_seen_at = Column(DateTime, nullable=True)
+
+    @property
+    def online(self) -> bool:
+        if self.last_seen_at is None:
+            return False
+        return (datetime.utcnow() - self.last_seen_at).total_seconds() < ONLINE_THRESHOLD_SECONDS
 
     company = relationship("Company", back_populates="stores")
     cameras = relationship("Camera", back_populates="store")

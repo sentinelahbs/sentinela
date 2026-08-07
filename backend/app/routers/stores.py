@@ -1,3 +1,4 @@
+import datetime
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -6,7 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Store, User, UserRole
 from schemas import StoreOut, StoreCreateIn, StoreCreateOut
-from auth import get_current_user
+from auth import get_current_user, get_store_from_edge_key
 from tenant_context import set_company_context
 
 router = APIRouter(prefix="/v1/stores", tags=["stores"])
@@ -55,3 +56,20 @@ def create_store(
     set_company_context(db, company_id)
     db.refresh(store)
     return store
+
+
+# --- Recebido da BOX de detecção instalada na loja -------------------------
+
+@router.post("/{store_id}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+def store_heartbeat(store: Store = Depends(get_store_from_edge_key), db: Session = Depends(get_db)):
+    """Ping periódico da box (ver heartbeat_sender no módulo de detecção) —
+    é assim que o backend sabe se ela está online. "Offline" não é uma
+    flag guardada; é derivado de last_seen_at na leitura (ver
+    list_my_stores abaixo e routers/admin.py)."""
+    store.last_seen_at = datetime.datetime.utcnow()
+    # Primeiro heartbeat depois do pagamento confirmado já avança o
+    # onboarding sozinho — "concluído" continua manual, só pelo admin
+    # (câmera online não garante que o setup foi validado de verdade).
+    if store.onboarding_status == "pending":
+        store.onboarding_status = "in_progress"
+    db.commit()

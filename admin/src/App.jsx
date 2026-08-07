@@ -79,10 +79,14 @@ function StatusBadge({ status }) {
 
 function useApiClient(onUnauthorized) {
   return useCallback(
-    async (path) => {
+    async (path, options = {}) => {
       const res = await fetch(`${API_BASE}${path}`, {
+        ...options,
         credentials: "include",
-        headers: { "X-Requested-With": "XMLHttpRequest" },
+        headers: {
+          ...(options.headers || {}),
+          "X-Requested-With": "XMLHttpRequest",
+        },
       });
       if (res.status === 401) {
         onUnauthorized();
@@ -92,6 +96,7 @@ function useApiClient(onUnauthorized) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `Erro ${res.status}`);
       }
+      if (res.status === 204) return null;
       return res.json();
     },
     [onUnauthorized]
@@ -523,8 +528,144 @@ function CompanyDetail({ api, companyId, onBack }) {
   );
 }
 
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      className="lp-btn"
+      onClick={onClick}
+      style={{
+        padding: "10px 14px",
+        border: "none",
+        borderBottom: active ? `2px solid ${COLORS.amber}` : "2px solid transparent",
+        background: "transparent",
+        color: active ? COLORS.text : COLORS.textFaint,
+        fontSize: 13,
+        fontWeight: active ? 600 : 500,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+const ONBOARDING_STATUS_MAP = {
+  pending: { label: "Pendente", color: COLORS.amber },
+  in_progress: { label: "Em configuração", color: COLORS.teal },
+  completed: { label: "Concluído", color: COLORS.textFaint },
+};
+
+function OnboardingPanel({ api }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [updatingId, setUpdatingId] = useState(null);
+
+  const load = useCallback(() => {
+    api("/v1/admin/onboarding")
+      .then((data) => {
+        setRows(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, [api]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function updateStatus(storeId, newStatus) {
+    setUpdatingId(storeId);
+    setError(null);
+    try {
+      await api(`/v1/admin/stores/${storeId}/onboarding`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  if (loading) {
+    return <div style={{ padding: 22, color: COLORS.textFaint, fontSize: 13 }}>Carregando fila de onboarding…</div>;
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto" }}>
+      {error && (
+        <div style={{ padding: "10px 22px", background: "rgba(242,85,90,0.1)", color: COLORS.red, fontSize: 12.5 }}>{error}</div>
+      )}
+      {rows.length === 0 ? (
+        <div style={{ padding: 22, color: COLORS.textFaint, fontSize: 13 }}>
+          Nenhuma loja aguardando conexão de câmeras no momento.
+        </div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: COLORS.textFaint, fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              <th style={{ padding: "10px 22px" }}>Empresa</th>
+              <th style={{ padding: "10px 12px" }}>Loja</th>
+              <th style={{ padding: "10px 12px" }}>Pago em</th>
+              <th style={{ padding: "10px 12px" }}>Conexão</th>
+              <th style={{ padding: "10px 22px" }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.store_id} style={{ borderTop: `1px solid ${COLORS.borderSoft}` }}>
+                <td style={{ padding: "12px 22px", fontWeight: 500 }}>{r.company_name}</td>
+                <td style={{ padding: "12px" }}>{r.store_name}</td>
+                <td style={{ padding: "12px", color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
+                  {r.payment_confirmed_at ? new Date(r.payment_confirmed_at).toLocaleDateString("pt-BR") : "—"}
+                </td>
+                <td style={{ padding: "12px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: r.online ? COLORS.teal : COLORS.textFaint }}>
+                    <Circle size={7} fill={r.online ? COLORS.teal : COLORS.textFaint} stroke="none" />
+                    {r.online ? "Online" : "Offline"}
+                  </span>
+                </td>
+                <td style={{ padding: "12px 22px" }}>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {Object.entries(ONBOARDING_STATUS_MAP).map(([value, meta]) => (
+                      <button
+                        key={value}
+                        className="lp-btn"
+                        disabled={updatingId === r.store_id}
+                        onClick={() => updateStatus(r.store_id, value)}
+                        style={{
+                          padding: "5px 9px",
+                          borderRadius: 6,
+                          border: `1px solid ${r.onboarding_status === value ? meta.color : COLORS.border}`,
+                          background: r.onboarding_status === value ? `${meta.color}22` : "transparent",
+                          color: r.onboarding_status === value ? meta.color : COLORS.textFaint,
+                          fontSize: 11,
+                          fontWeight: r.onboarding_status === value ? 600 : 500,
+                        }}
+                      >
+                        {meta.label}
+                      </button>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function AdminPanel({ onLogout }) {
   const api = useApiClient(onLogout);
+  const [tab, setTab] = useState("companies"); // "companies" | "onboarding"
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -562,65 +703,76 @@ function AdminPanel({ onLogout }) {
         </button>
       </div>
 
-      <div style={{ display: "flex", gap: 24, padding: "16px 22px", borderBottom: `1px solid ${COLORS.border}` }}>
-        <Stat icon={<Building2 size={14} color={COLORS.text} />} label="Empresas" value={companies.length} />
-        <Stat icon={<Store size={14} color={COLORS.text} />} label="Lojas no total" value={totalStores} />
-        <Stat icon={<Circle size={14} color={COLORS.teal} />} label="Assinaturas ativas" value={activeCount} color={COLORS.teal} />
-        <Stat icon={<AlertTriangle size={14} color={COLORS.red} />} label="Em atraso" value={overdueCount} color={COLORS.red} />
+      <div style={{ display: "flex", padding: "0 22px", borderBottom: `1px solid ${COLORS.border}` }}>
+        <TabButton active={tab === "companies"} onClick={() => setTab("companies")}>Empresas</TabButton>
+        <TabButton active={tab === "onboarding"} onClick={() => setTab("onboarding")}>Onboarding</TabButton>
       </div>
 
-      {error && (
-        <div style={{ padding: "10px 22px", background: "rgba(242,85,90,0.1)", color: COLORS.red, fontSize: 12.5 }}>{error}</div>
-      )}
-
-      {selectedId ? (
-        <CompanyDetail api={api} companyId={selectedId} onBack={() => setSelectedId(null)} />
+      {tab === "onboarding" ? (
+        <OnboardingPanel api={api} />
       ) : (
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {loading ? (
-            <div style={{ padding: 22, color: COLORS.textFaint, fontSize: 13 }}>Carregando empresas…</div>
-          ) : companies.length === 0 ? (
-            <div style={{ padding: 22, color: COLORS.textFaint, fontSize: 13 }}>Nenhuma empresa cadastrada ainda.</div>
-          ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ textAlign: "left", color: COLORS.textFaint, fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  <th style={{ padding: "10px 22px" }}>Empresa</th>
-                  <th style={{ padding: "10px 12px" }}>Lojas</th>
-                  <th style={{ padding: "10px 12px" }}>Usuários</th>
-                  <th style={{ padding: "10px 12px" }}>Câmeras</th>
-                  <th style={{ padding: "10px 12px" }}>Cliente desde</th>
-                  <th style={{ padding: "10px 22px" }}>Cobrança</th>
-                </tr>
-              </thead>
-              <tbody>
-                {companies.map((c) => (
-                  <tr key={c.id} className="lp-row" onClick={() => setSelectedId(c.id)} style={{ borderTop: `1px solid ${COLORS.borderSoft}` }}>
-                    <td style={{ padding: "12px 22px", fontWeight: 500 }}>{c.name}</td>
-                    <td style={{ padding: "12px" }}>{c.store_count}</td>
-                    <td style={{ padding: "12px" }}>{c.user_count}</td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        fontFamily: "'IBM Plex Mono', monospace",
-                        fontSize: 12,
-                        color: c.cameras_used >= c.camera_limit && c.camera_limit > 0 ? COLORS.red : COLORS.textMuted,
-                      }}
-                    >
-                      {c.cameras_used} / {c.camera_limit}
-                    </td>
-                    <td style={{ padding: "12px", color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
-                      {new Date(c.created_at).toLocaleDateString("pt-BR")}
-                    </td>
-                    <td style={{ padding: "12px 22px" }}>
-                      <StatusBadge status={c.subscription_status} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <>
+          <div style={{ display: "flex", gap: 24, padding: "16px 22px", borderBottom: `1px solid ${COLORS.border}` }}>
+            <Stat icon={<Building2 size={14} color={COLORS.text} />} label="Empresas" value={companies.length} />
+            <Stat icon={<Store size={14} color={COLORS.text} />} label="Lojas no total" value={totalStores} />
+            <Stat icon={<Circle size={14} color={COLORS.teal} />} label="Assinaturas ativas" value={activeCount} color={COLORS.teal} />
+            <Stat icon={<AlertTriangle size={14} color={COLORS.red} />} label="Em atraso" value={overdueCount} color={COLORS.red} />
+          </div>
+
+          {error && (
+            <div style={{ padding: "10px 22px", background: "rgba(242,85,90,0.1)", color: COLORS.red, fontSize: 12.5 }}>{error}</div>
           )}
-        </div>
+
+          {selectedId ? (
+            <CompanyDetail api={api} companyId={selectedId} onBack={() => setSelectedId(null)} />
+          ) : (
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {loading ? (
+                <div style={{ padding: 22, color: COLORS.textFaint, fontSize: 13 }}>Carregando empresas…</div>
+              ) : companies.length === 0 ? (
+                <div style={{ padding: 22, color: COLORS.textFaint, fontSize: 13 }}>Nenhuma empresa cadastrada ainda.</div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", color: COLORS.textFaint, fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      <th style={{ padding: "10px 22px" }}>Empresa</th>
+                      <th style={{ padding: "10px 12px" }}>Lojas</th>
+                      <th style={{ padding: "10px 12px" }}>Usuários</th>
+                      <th style={{ padding: "10px 12px" }}>Câmeras</th>
+                      <th style={{ padding: "10px 12px" }}>Cliente desde</th>
+                      <th style={{ padding: "10px 22px" }}>Cobrança</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {companies.map((c) => (
+                      <tr key={c.id} className="lp-row" onClick={() => setSelectedId(c.id)} style={{ borderTop: `1px solid ${COLORS.borderSoft}` }}>
+                        <td style={{ padding: "12px 22px", fontWeight: 500 }}>{c.name}</td>
+                        <td style={{ padding: "12px" }}>{c.store_count}</td>
+                        <td style={{ padding: "12px" }}>{c.user_count}</td>
+                        <td
+                          style={{
+                            padding: "12px",
+                            fontFamily: "'IBM Plex Mono', monospace",
+                            fontSize: 12,
+                            color: c.cameras_used >= c.camera_limit && c.camera_limit > 0 ? COLORS.red : COLORS.textMuted,
+                          }}
+                        >
+                          {c.cameras_used} / {c.camera_limit}
+                        </td>
+                        <td style={{ padding: "12px", color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
+                          {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                        </td>
+                        <td style={{ padding: "12px 22px" }}>
+                          <StatusBadge status={c.subscription_status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

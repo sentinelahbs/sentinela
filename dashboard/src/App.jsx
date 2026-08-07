@@ -29,6 +29,8 @@ import {
   Download,
   CreditCard,
   QrCode,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 // Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
@@ -1414,6 +1416,86 @@ function useIsMobile() {
   return isMobile;
 }
 
+// --- STATUS (onboarding + conexão das câmeras) --------------------------
+
+const ONBOARDING_STATUS_MAP = {
+  pending: { label: "Pendente", color: COLORS.amber },
+  in_progress: { label: "Em configuração", color: COLORS.teal },
+  completed: { label: "Concluído", color: COLORS.teal },
+};
+
+function timeAgo(isoString) {
+  if (!isoString) return "nunca conectou";
+  const minutes = Math.floor((Date.now() - new Date(isoString).getTime()) / 60000);
+  if (minutes < 1) return "agora mesmo";
+  if (minutes < 60) return `há ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `há ${hours}h`;
+  return `há ${Math.floor(hours / 24)}d`;
+}
+
+function StatusPanel({ stores }) {
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
+      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Status das lojas</div>
+      <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 20 }}>
+        Acompanhe a conexão das câmeras e o andamento da configuração de cada loja.
+      </p>
+
+      {stores.length === 0 ? (
+        <div style={{ color: COLORS.textFaint, fontSize: 13 }}>Nenhuma loja cadastrada ainda.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {stores.map((store) => {
+            const statusMeta = ONBOARDING_STATUS_MAP[store.onboarding_status] || ONBOARDING_STATUS_MAP.pending;
+            return (
+              <div
+                key={store.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 10,
+                  padding: "14px 16px",
+                  background: COLORS.panel,
+                  border: `1px solid ${COLORS.border}`,
+                  borderRadius: 10,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{store.name}</div>
+                  <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginTop: 3 }}>
+                    {store.online ? "Conectado" : "Sem conexão"} — {timeAgo(store.last_seen_at)}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: store.online ? COLORS.teal : COLORS.textFaint }}>
+                    {store.online ? <Wifi size={14} /> : <WifiOff size={14} />}
+                    {store.online ? "Online" : "Offline"}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: "4px 10px",
+                      borderRadius: 20,
+                      border: `1px solid ${statusMeta.color}`,
+                      color: statusMeta.color,
+                    }}
+                  >
+                    {statusMeta.label}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ onLogout }) {
   const api = useApiClient(onLogout);
 
@@ -1425,7 +1507,7 @@ function Dashboard({ onLogout }) {
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [error, setError] = useState(null);
   const [showAddStore, setShowAddStore] = useState(false);
-  const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team" | "billing"
+  const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team" | "billing" | "status"
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("vigia_sound_enabled") !== "false");
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
@@ -1596,6 +1678,15 @@ function Dashboard({ onLogout }) {
         </button>
 
         <button
+          className="lp-btn lp-nav"
+          onClick={() => { setActiveView("status"); setShowMobileNav(false); }}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: activeView === "status" ? COLORS.panelAlt : "transparent", color: activeView === "status" ? COLORS.text : COLORS.textFaint, fontSize: 12.5, textAlign: "left", marginTop: 2 }}
+        >
+          <Wifi size={13} />
+          Status
+        </button>
+
+        <button
           className="lp-btn"
           onClick={() => setSoundEnabled((prev) => !prev)}
           style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: "transparent", color: COLORS.textFaint, fontSize: 12.5, textAlign: "left" }}
@@ -1655,6 +1746,8 @@ function Dashboard({ onLogout }) {
           <TeamPanel api={api} stores={stores} />
         ) : activeView === "billing" ? (
           <BillingPanel api={api} />
+        ) : activeView === "status" ? (
+          <StatusPanel stores={stores} />
         ) : showEmptyState ? (
           <div className="lp-fade-up" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: COLORS.textFaint }}>
             <Building2 size={28} color={COLORS.textFaint} style={{ opacity: 0.6 }} />
@@ -1795,7 +1888,13 @@ function Dashboard({ onLogout }) {
           api={api}
           onClose={() => setShowAddStore(false)}
           onCreated={(store) => {
-            setStores((prev) => [...prev, { id: store.id, name: store.name, city: store.city }]);
+            // Mesmos defaults que o backend dá pra uma loja recém-criada
+            // (ver models.py) — evita "undefined" na tela de Status antes
+            // do próximo carregamento da lista via GET /v1/stores.
+            setStores((prev) => [
+              ...prev,
+              { id: store.id, name: store.name, city: store.city, onboarding_status: "pending", last_seen_at: null, online: false },
+            ]);
             setSelectedStore(store.id);
           }}
         />

@@ -14,10 +14,13 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Company, Store, User, Camera
-from schemas import AdminCompanyOut, AdminCompanyDetailOut
+from schemas import AdminCompanyOut, AdminCompanyDetailOut, AdminOnboardingOut, OnboardingStatusIn
 from auth import get_current_admin
+from tenant_context import set_platform_admin_context
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
+
+ONBOARDING_STATUSES = ("pending", "in_progress", "completed")
 
 
 def _team_member_out(u: User):
@@ -88,4 +91,84 @@ def get_company_detail(
         cameras_used=cameras_used,
         stores=stores,
         users=[_team_member_out(u) for u in users],
+    )
+
+
+def _onboarding_out(store: Store, company: Company) -> AdminOnboardingOut:
+    return AdminOnboardingOut(
+        store_id=store.id,
+        store_name=store.name,
+        company_id=company.id,
+        company_name=company.name,
+        payment_confirmed_at=company.payment_confirmed_at.isoformat() if company.payment_confirmed_at else None,
+        onboarding_status=store.onboarding_status,
+        online=store.online,
+        last_seen_at=store.last_seen_at.isoformat() if store.last_seen_at else None,
+    )
+
+
+@router.get("/onboarding", response_model=list[AdminOnboardingOut])
+def list_onboarding(
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Fila de lojas aguardando conexão de câmeras — só empresas com
+    pagamento já confirmado, da que está esperando há mais tempo pra
+    mais recente (mesma lógica de fila de qualquer painel de suporte)."""
+    rows = (
+        db.query(Store, Company)
+        .join(Company, Store.company_id == Company.id)
+        .filter(Company.payment_confirmed_at.isnot(None))
+        .filter(Store.onboarding_status != "completed")
+        .order_by(Company.payment_confirmed_at.asc())
+        .all()
+    )
+    return [_onboarding_out(store, company) for store, company in rows]
+
+
+@router.patch("/stores/{store_id}/onboarding", response_model=AdminOnboardingOut)
+def update_onboarding_status(
+    store_id: str,
+    payload: OnboardingStatusIn,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Botão de avançar/corrigir status na tela de onboarding do admin.
+    "completed" só chega aqui por ação manual — nunca automático (ver
+    stores.py store_heartbeat), já que câmera online não garante que o
+    setup foi validado de verdade (ângulo certo, zona configurada etc.)."""
+    if payload.status not in ONBOARDING_STATUSES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Status inválido")
+
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if store is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Loja não encontrada")
+
+    company = db.query(Company).filter(Company.id == store.company_id).first()
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Empresa não encontrada")
+
+    # Valores puros: depois do commit() a instância expira, e reler os
+    # atributos exigiria um SELECT sob o contexto de admin religado logo
+    # abaixo — mais simples guardar antes.
+    company_id = company.id
+    company_name = company.name
+    payment_confirmed_at = company.payment_confirmed_at
+
+    store.onboarding_status = payload.status
+    db.commit()
+    # commit() encerra a transação e reseta o SET LOCAL setado por
+    # get_current_admin — precisa religar antes do refresh() abaixo.
+    set_platform_admin_context(db)
+    db.refresh(store)
+
+    return AdminOnboardingOut(
+        store_id=store.id,
+        store_name=store.name,
+        company_id=company_id,
+        company_name=company_name,
+        payment_confirmed_at=payment_confirmed_at.isoformat() if payment_confirmed_at else None,
+        onboarding_status=store.onboarding_status,
+        online=store.online,
+        last_seen_at=store.last_seen_at.isoformat() if store.last_seen_at else None,
     )

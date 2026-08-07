@@ -42,9 +42,14 @@ def signup(request: Request, response: Response, payload: SignupIn, db: Session 
     loja (com sua própria API key pra box de detecção) e o usuário owner,
     tudo numa única chamada — é o que alimenta a tela de cadastro."""
 
+    # CSRF primeiro: um token do Turnstile só pode ser verificado uma vez
+    # junto ao Cloudflare — se checássemos o Turnstile antes e a requisição
+    # fosse barrada aqui embaixo pelo CSRF, o token já teria sido consumido,
+    # e uma nova tentativa reusando o mesmo token falharia no Turnstile de
+    # forma confusa (widget mostra sucesso, servidor recusa como duplicado).
+    require_csrf_header(request)
     if not verify_turnstile(payload.turnstile_token, get_client_ip(request)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Verificação de segurança falhou — tente novamente")
-    require_csrf_header(request)
 
     # Checagem de duplicidade precisa enxergar TODAS as empresas (email é
     # único globalmente) — ainda não existe uma empresa/JWT nesse momento.
@@ -109,9 +114,12 @@ def signup(request: Request, response: Response, payload: SignupIn, db: Session 
 @router.post("/login", response_model=MeOut)
 @limiter.limit("10/minute")
 def login(request: Request, response: Response, payload: LoginIn, db: Session = Depends(get_db)):
+    # CSRF primeiro — ver comentário equivalente em signup() acima: evita
+    # queimar o token do Turnstile numa requisição que vai ser recusada
+    # de qualquer jeito pelo guard de CSRF.
+    require_csrf_header(request)
     if not verify_turnstile(payload.turnstile_token, get_client_ip(request)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Verificação de segurança falhou — tente novamente")
-    require_csrf_header(request)
 
     # Login busca o usuário pelo email antes de saber a empresa dele —
     # é justamente essa consulta que descobre isso.

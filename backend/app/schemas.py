@@ -72,6 +72,10 @@ class SignupIn(BaseModel):
     email: EmailStr
     password: str
     turnstile_token: str
+    # Presente quando o cadastro vem do fluxo de aquisição por link de
+    # marketing (pagou antes de ter conta) — ver GET /v1/billing/
+    # prepaid-checkout e PrepaidCheckout em models.py.
+    prepaid_token: Optional[str] = None
 
     _normalize_email = field_validator("email")(_normalize_email)
 

@@ -186,6 +186,35 @@ class PasswordResetToken(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PrepaidCheckout(Base):
+    """Sessão de Checkout do Asaas criada ANTES de existir empresa/usuário
+    — fluxo de aquisição por link de marketing: o prospect paga primeiro,
+    só depois cria a conta (ver GET /v1/billing/prepaid-checkout e o
+    campo prepaid_token em SignupIn). Não pertence a nenhuma empresa até
+    ser reivindicado no cadastro (claimed_company_id), por isso não tem
+    company_id — mesmo princípio do TeamInvite/PasswordResetToken: posse
+    do claim_token é a credencial."""
+    __tablename__ = "prepaid_checkouts"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    asaas_checkout_id = Column(String, nullable=False, unique=True)
+    claim_token = Column(String, nullable=False, unique=True)
+    camera_packages = Column(Integer, nullable=False)
+    monthly_value = Column(Float, nullable=False)
+    # pending -> paid (webhook CHECKOUT_PAID) -> claimed (cadastro usou o
+    # token) | canceled | expired
+    status = Column(String, nullable=False, default="pending")
+    # Preenchidos pelo webhook, a partir do pagamento real gerado pelo
+    # checkout (ver AsaasClient.get_payments_for_checkout) — não confiamos
+    # em campo de payload do webhook não documentado com certeza pelo Asaas.
+    asaas_customer_id = Column(String, nullable=True)
+    asaas_subscription_id = Column(String, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
+    claimed_company_id = Column(UUID(as_uuid=False), ForeignKey("companies.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Alert(Base):
     __tablename__ = "alerts"
 

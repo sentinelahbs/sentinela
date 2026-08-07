@@ -440,7 +440,7 @@ function ResetPasswordScreen({ token, onReset }) {
 
 // --- ONBOARDING / SIGNUP -----------------------------------------------
 
-function OnboardingScreen({ onFinished, onGoToLogin }) {
+function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
   const [step, setStep] = useState(1); // 1: empresa+loja, 2: conta do responsável, 3: sucesso
   const [form, setForm] = useState({
     company_name: "",
@@ -479,7 +479,7 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-        body: JSON.stringify({ ...form, turnstile_token: turnstileToken }),
+        body: JSON.stringify({ ...form, turnstile_token: turnstileToken, prepaid_token: prepaidToken || undefined }),
       });
       if (!res.ok) {
         if (res.status === 429) {
@@ -582,6 +582,19 @@ function OnboardingScreen({ onFinished, onGoToLogin }) {
           />
         ))}
       </div>
+
+      {prepaidToken && (
+        <div
+          style={{
+            display: "flex", alignItems: "center", gap: 8,
+            background: "rgba(52,211,153,0.12)", border: `1px solid ${COLORS.teal}`,
+            borderRadius: 8, padding: "9px 12px", marginBottom: 16, fontSize: 12,
+          }}
+        >
+          <Check size={14} color={COLORS.teal} />
+          <span>Pagamento confirmado! Falta só criar sua conta.</span>
+        </div>
+      )}
 
       {step === 1 && (
         <form onSubmit={goNext}>
@@ -2055,6 +2068,11 @@ export default function App() {
   // recebido por email.
   const resetToken =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset_token") : null;
+  // Volta do Checkout do Asaas no fluxo de aquisição por link — pagou
+  // antes de ter conta (ver GET /v1/billing/prepaid-checkout no backend).
+  // Força a tela de cadastro mesmo que "view" esteja em outra coisa.
+  const prepaidToken =
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("prepaid_token") : null;
 
   if (checkingAuth) {
     return (
@@ -2073,6 +2091,16 @@ export default function App() {
 
   if (!authenticated && inviteToken) {
     return <AcceptInviteScreen token={inviteToken} onAccepted={() => setAuthenticated(true)} />;
+  }
+
+  if (!authenticated && prepaidToken) {
+    return (
+      <OnboardingScreen
+        prepaidToken={prepaidToken}
+        onFinished={() => setAuthenticated(true)}
+        onGoToLogin={() => setView("login")}
+      />
+    );
   }
 
   if (authenticated) {

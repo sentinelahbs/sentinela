@@ -85,3 +85,24 @@ def set_customer_lookup(db: Session, asaas_customer_id: str) -> None:
         text("SET LOCAL app.lookup_customer_id = :cid"),
         {"cid": asaas_customer_id},
     )
+
+
+def set_prepaid_checkout_token_lookup(db: Session, token: str) -> None:
+    """Usado no cadastro público (/v1/auth/signup?prepaid_token=...) e no
+    fallback do webhook de checkout — quem chama ainda não tem conta;
+    igual set_invite_lookup, a posse do token é a credencial."""
+    db.execute(
+        text("SET LOCAL app.lookup_prepaid_token = :token"),
+        {"token": token},
+    )
+
+
+def set_prepaid_checkout_id_lookup(db: Session, asaas_checkout_id: str) -> None:
+    """Usado pelo webhook do Asaas (evento CHECKOUT_*) — mesmo princípio
+    de set_billing_lookup/set_customer_lookup, mas pra achar o registro
+    de checkout pré-cadastro, não uma empresa (que ainda não existe
+    nesse momento)."""
+    db.execute(
+        text("SET LOCAL app.lookup_prepaid_checkout_id = :cid"),
+        {"cid": asaas_checkout_id},
+    )

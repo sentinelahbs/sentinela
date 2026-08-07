@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Company, Store, UserRole, PasswordResetToken
+from models import User, Company, Store, UserRole, PasswordResetToken, PrepaidCheckout
 from rate_limit import limiter, get_client_ip
 from schemas import (
     LoginIn, SignupIn, SignupOut, MeOut,
@@ -19,7 +19,15 @@ from auth import (
 )
 from email_client import EmailClient
 from turnstile import verify_turnstile
-from tenant_context import set_auth_bootstrap, set_company_context, set_password_reset_lookup
+from tenant_context import (
+    set_auth_bootstrap, set_company_context, set_password_reset_lookup,
+    set_prepaid_checkout_token_lookup,
+)
+# Preço/pacote e o cliente Asaas já configurado são conceitos de
+# billing — reaproveita em vez de duplicar (ver claim do prepaid_token
+# abaixo). Sem risco de import circular: billing.py nunca importa nada
+# de routers/auth.py.
+from routers.billing import CAMERAS_PER_PACKAGE, asaas
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 email_client = EmailClient()
@@ -51,6 +59,26 @@ def signup(request: Request, response: Response, payload: SignupIn, db: Session 
     if not verify_turnstile(payload.turnstile_token, get_client_ip(request)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Verificação de segurança falhou — tente novamente")
 
+    # Fluxo de aquisição por link (pagou antes de ter conta) — valida o
+    # pagamento ANTES de criar qualquer coisa, pra não deixar rastro de
+    # empresa/usuário se o token for inválido.
+    prepaid = None
+    if payload.prepaid_token:
+        set_prepaid_checkout_token_lookup(db, payload.prepaid_token)
+        prepaid = db.query(PrepaidCheckout).filter(PrepaidCheckout.claim_token == payload.prepaid_token).first()
+        if prepaid is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Link de pagamento inválido")
+        if prepaid.claimed_at is not None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este link já foi usado para criar uma conta")
+        if prepaid.status != "paid":
+            # O Asaas só redireciona pro successUrl depois de pago, mas o
+            # nosso webhook (assíncrono) pode não ter processado ainda —
+            # front pode reapresentar a mesma tela e tentar de novo.
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Ainda estamos confirmando seu pagamento — aguarde alguns segundos e tente novamente.",
+            )
+
     # Checagem de duplicidade precisa enxergar TODAS as empresas (email é
     # único globalmente) — ainda não existe uma empresa/JWT nesse momento.
     set_auth_bootstrap(db)
@@ -61,7 +89,35 @@ def signup(request: Request, response: Response, payload: SignupIn, db: Session 
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Já existe uma conta com este email")
 
+    if prepaid is not None:
+        # O checkout cobrou só a primeira mensalidade avulsa (Pix não
+        # suporta RECURRENT no produto de Checkout do Asaas — só cartão,
+        # confirmado direto na API). A assinatura recorrente de verdade
+        # nasce agora, usando o customer_id resultante daquele pagamento
+        # — mesmo create_subscription já usado por quem assina logado
+        # em /subscribe. Chamada à API acontece ANTES de criar a empresa
+        # de propósito: se falhar, não sobra empresa órfã sem assinatura.
+        tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+        subscription = asaas.create_subscription(
+            customer_id=prepaid.asaas_customer_id,
+            value=prepaid.monthly_value,
+            description=(
+                f"VigIA — {prepaid.camera_packages} pacote(s) de {CAMERAS_PER_PACKAGE} câmeras "
+                f"({prepaid.camera_packages * CAMERAS_PER_PACKAGE} câmeras) — {payload.company_name}"
+            ),
+            next_due_date=tomorrow,
+        )
+        prepaid.asaas_subscription_id = subscription["id"]
+
     company = Company(name=payload.company_name)
+    if prepaid is not None:
+        # Pagamento já confirmado (checado acima) — a empresa nasce ativa,
+        # sem passar pelo /subscribe nem esperar outro webhook.
+        company.asaas_customer_id = prepaid.asaas_customer_id
+        company.asaas_subscription_id = prepaid.asaas_subscription_id
+        company.subscription_status = "active"
+        company.payment_confirmed_at = datetime.datetime.utcnow()
+        company.camera_limit = prepaid.camera_packages * CAMERAS_PER_PACKAGE
     db.add(company)
     db.flush()  # garante company.id antes de usar como FK
     # Guarda como valor puro: depois do commit() a instância expira, e
@@ -69,6 +125,11 @@ def signup(request: Request, response: Response, payload: SignupIn, db: Session 
     # RLS (ninguém religou o contexto ainda — é justamente isso que
     # set_company_context faz logo abaixo).
     company_id = company.id
+
+    if prepaid is not None:
+        prepaid.claimed_at = datetime.datetime.utcnow()
+        prepaid.status = "claimed"
+        prepaid.claimed_company_id = company_id
 
     store = Store(
         company_id=company.id,

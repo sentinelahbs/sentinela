@@ -65,7 +65,8 @@ def set_auth_cookie(response: Response, token: str) -> None:
 
 def clear_auth_cookie(response: Response) -> None:
     response.delete_cookie(
-        key=COOKIE_NAME, path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE
+        key=COOKIE_NAME, path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE,
+        httponly=True,
     )
 
 

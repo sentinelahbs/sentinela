@@ -276,6 +276,19 @@ def create_prepaid_checkout(request: Request, packages: int = 1, db: Session = D
     return RedirectResponse(checkout["link"], status_code=status.HTTP_302_FOUND)
 
 
+def _mark_prepaid_paid(prepaid: PrepaidCheckout, db: Session) -> None:
+    if prepaid.status != "pending":
+        return
+    # Não confiamos em customer_id vindo do próprio payload do webhook
+    # (formato não documentado com certeza pelo Asaas) — a fonte de
+    # verdade é o pagamento real gerado pelo checkout.
+    payments = asaas.get_payments_for_checkout(prepaid.asaas_checkout_id)
+    if payments:
+        prepaid.asaas_customer_id = payments[0].get("customer")
+    prepaid.status = "paid"
+    prepaid.paid_at = datetime.datetime.utcnow()
+
+
 def _handle_checkout_webhook(event: str, body: dict, db: Session) -> dict:
     checkout = body.get("checkout") or {}
     checkout_id = checkout.get("id") or body.get("id")
@@ -303,17 +316,7 @@ def _handle_checkout_webhook(event: str, body: dict, db: Session) -> dict:
         return {"received": True}  # checkout de outro ambiente/já reivindicado, ignora
 
     if event == "CHECKOUT_PAID" and prepaid.status == "pending":
-        # Não confiamos em customer_id vindo do próprio payload do
-        # webhook (formato não documentado com certeza pelo Asaas) — a
-        # fonte de verdade é o pagamento real gerado pelo checkout. Não
-        # tem subscription aqui: o checkout cobra avulso (DETACHED, ver
-        # asaas_client.create_checkout) — a assinatura recorrente nasce
-        # depois, no cadastro, usando esse customer_id.
-        payments = asaas.get_payments_for_checkout(prepaid.asaas_checkout_id)
-        if payments:
-            prepaid.asaas_customer_id = payments[0].get("customer")
-        prepaid.status = "paid"
-        prepaid.paid_at = datetime.datetime.utcnow()
+        _mark_prepaid_paid(prepaid, db)
     elif event == "CHECKOUT_CANCELED" and prepaid.status == "pending":
         prepaid.status = "canceled"
     elif event == "CHECKOUT_EXPIRED" and prepaid.status == "pending":
@@ -349,8 +352,9 @@ async def asaas_webhook(
     # Os dois casos precisam resolver para a empresa certa.
     subscription_id = payment.get("subscription")
     customer_id = payment.get("customer")
+    checkout_session_id = payment.get("checkoutSession")
 
-    if not subscription_id and not customer_id:
+    if not subscription_id and not customer_id and not checkout_session_id:
         return {"received": True}  # evento sem nada pra cruzar com uma empresa, ignora
 
     # Não existe usuário logado aqui (é o Asaas chamando, autenticado só
@@ -369,6 +373,22 @@ async def asaas_webhook(
         company = db.query(Company).filter(Company.asaas_customer_id == customer_id).first()
 
     if company is None:
+        # Pagamento avulso do fluxo de aquisição por link (ver
+        # create_prepaid_checkout acima) — nesse momento ainda não existe
+        # Company nenhuma, só a linha de PrepaidCheckout, então os dois
+        # cruzamentos acima (subscription/customer) não acham nada. Na
+        # prática, confirmado com um pagamento real em produção, o Asaas
+        # manda PAYMENT_CONFIRMED/PAYMENT_RECEIVED pra esse tipo de
+        # cobrança (DETACHED) — não CHECKOUT_PAID — por isso tratamos
+        # aqui também, cruzando pelo checkoutSession do pagamento.
+        if checkout_session_id and event in ("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"):
+            set_prepaid_checkout_id_lookup(db, checkout_session_id)
+            prepaid = db.query(PrepaidCheckout).filter(
+                PrepaidCheckout.asaas_checkout_id == checkout_session_id
+            ).first()
+            if prepaid is not None:
+                _mark_prepaid_paid(prepaid, db)
+                db.commit()
         return {"received": True}  # assinatura/cliente de outro ambiente, ignora
 
     # Mapeamento dos eventos de cobrança do Asaas para o status que o

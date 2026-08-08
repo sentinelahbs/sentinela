@@ -19,6 +19,9 @@ from capture import RollingCapture
 from detector import PerceptionPipeline, DETECTION_BACKEND
 from pose_rules import SuspiciousBehaviorRule
 from tracker import IouTracker
+from appearance import color_signature
+from correlator import LocalCorrelator
+from store_topology import fetch_neighbor_camera_ids
 from clip_recorder import ClipRecorder
 from alert_client import AlertClient
 from heartbeat import HeartbeatSender
@@ -60,6 +63,16 @@ def run_camera(store_cfg, camera_cfg):
         store_id=store_cfg.store_id,
     )
 
+    # Vizinhança é cadastrada uma vez no dashboard e muda raramente —
+    # busca só ao iniciar, não precisa reconsultar a cada frame nem a
+    # cada alerta. Loja compartilha a mesma base local entre os processos
+    # de cada câmera (ver correlator.py — por isso db_path é relativo ao
+    # diretório de trabalho da BOX, não por câmera).
+    neighbor_camera_ids = fetch_neighbor_camera_ids(
+        store_cfg.api_base_url, store_cfg.api_key, store_cfg.store_id, camera_cfg.camera_id
+    )
+    correlator = LocalCorrelator()
+
     last_alert_at = {}
 
     try:
@@ -99,6 +112,25 @@ def run_camera(store_cfg, camera_cfg):
                 if time.time() - last_alert_at.get(person_id, 0) < COOLDOWN_SECONDS:
                     continue
                 last_alert_at[person_id] = time.time()
+
+                # Correlação entre câmeras vizinhas (ver correlator.py):
+                # registra esse evento sempre, mesmo quando ele próprio
+                # acaba sendo suprimido como continuação — permite
+                # encadear por uma terceira câmera vizinha, se existir.
+                # Registrar ANTES de checar evita que duas câmeras vizinhas
+                # disparando quase juntas se suprimam mutuamente (a que
+                # registra primeiro "vence"; a segunda vê o registro da
+                # primeira e se suprime).
+                signature = color_signature(frame, signal.person_bbox)
+                is_continuation = correlator.find_continuation(camera_cfg.camera_id, neighbor_camera_ids, signature)
+                correlator.record_alert(camera_cfg.camera_id, track_id, signature)
+
+                if is_continuation:
+                    log.info(
+                        f"Evento suspeito (confiança={confidence}) tratado como continuação de um "
+                        f"alerta recente numa câmera vizinha — não reenviado: {reason}"
+                    )
+                    continue
 
                 log.info(f"Evento suspeito detectado (confiança={confidence}): {reason}")
 

@@ -1514,6 +1514,7 @@ function CamerasPanel({ api, stores }) {
   const [selectedStoreId, setSelectedStoreId] = useState(stores[0]?.id || null);
   const [cameras, setCameras] = useState([]);
   const [neighbors, setNeighbors] = useState([]);
+  const [suppressedEvents, setSuppressedEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [newLabel, setNewLabel] = useState("");
@@ -1531,10 +1532,12 @@ function CamerasPanel({ api, stores }) {
     Promise.all([
       api(`/v1/stores/${selectedStoreId}/cameras`),
       api(`/v1/stores/${selectedStoreId}/cameras/neighbors`),
+      api(`/v1/stores/${selectedStoreId}/suppressed-events`),
     ])
-      .then(([camerasData, neighborsData]) => {
+      .then(([camerasData, neighborsData, suppressedData]) => {
         setCameras(camerasData);
         setNeighbors(neighborsData);
+        setSuppressedEvents(suppressedData);
         setLoading(false);
       })
       .catch((err) => {
@@ -1740,6 +1743,42 @@ function CamerasPanel({ api, stores }) {
                     </div>
                   );
                 })}
+              </div>
+            </>
+          )}
+
+          {suppressedEvents.length > 0 && (
+            <>
+              <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4, marginTop: 28, display: "flex", alignItems: "center", gap: 6 }}>
+                <EyeOff size={14} color={COLORS.textFaint} />
+                Alertas suprimidos por correlação
+              </div>
+              <p style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 14, maxWidth: 560 }}>
+                Eventos que uma câmera não reenviou por considerar continuação de um alerta recente numa câmera vizinha. Revise de vez em quando — se duas pessoas diferentes estiverem sendo tratadas como uma só, desmarque a vizinhança entre essas câmeras.
+              </p>
+              <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
+                {suppressedEvents.map((ev, i) => (
+                  <div
+                    key={ev.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      padding: "10px 16px",
+                      borderTop: i === 0 ? "none" : `1px solid ${COLORS.borderSoft}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 12.5 }}>
+                      <strong>{ev.camera_label}</strong> não reenviou (confiança {(ev.confidence * 100).toFixed(0)}%) — tratado como continuação de <strong>{ev.matched_camera_label}</strong>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>
+                      <span>distância {ev.appearance_distance.toFixed(2)}</span>
+                      <span>{timeAgo(ev.created_at)}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </>
           )}

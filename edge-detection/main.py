@@ -71,7 +71,14 @@ def run_camera(store_cfg, camera_cfg):
     neighbor_camera_ids = fetch_neighbor_camera_ids(
         store_cfg.api_base_url, store_cfg.api_key, store_cfg.store_id, camera_cfg.camera_id
     )
-    correlator = LocalCorrelator()
+    # Configurável por env var pra calibrar por loja (layout físico —
+    # câmeras vizinhas mais distantes uma da outra precisam de janela
+    # maior — e por hardware, já que numa box compartilhando CPU entre
+    # várias câmeras o tempo até uma reconhecer o mesmo evento varia).
+    correlator = LocalCorrelator(
+        correlation_window_seconds=float(os.environ.get("CORRELATION_WINDOW_SECONDS", "8.0")),
+        appearance_max_distance=float(os.environ.get("CORRELATION_MAX_DISTANCE", "0.4")),
+    )
 
     last_alert_at = {}
 

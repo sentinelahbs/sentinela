@@ -216,6 +216,26 @@ class CameraNeighborCreateIn(BaseModel):
     camera_id_b: str
 
 
+class SuppressedEventIn(BaseModel):
+    camera_id: str
+    matched_camera_id: str
+    track_id: int
+    confidence: float
+    appearance_distance: float
+
+
+class SuppressedEventOut(BaseModel):
+    id: str
+    camera_id: str
+    camera_label: str
+    matched_camera_id: str
+    matched_camera_label: str
+    track_id: int
+    confidence: float
+    appearance_distance: float
+    created_at: datetime
+
+
 class SubscribeIn(BaseModel):
     cpf_cnpj: str          # CPF ou CNPJ do responsável/empresa, exigido pelo Asaas
     camera_packages: int    # quantidade de pacotes de 5 câmeras (mínimo 1)

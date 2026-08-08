@@ -148,6 +148,26 @@ class CameraNeighbor(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class SuppressedEvent(Base):
+    """Log de auditoria: um comportamento suspeito que o correlator local
+    da box (ver correlator.py no módulo de detecção) decidiu NÃO virar
+    Alert, por considerar continuação de um evento recente numa câmera
+    vizinha. Não é um Alert — de propósito, pra não duplicar o alerta que
+    o correlator já está evitando — mas fica registrado pra o dono
+    conseguir auditar se a supressão fez sentido (ex: duas pessoas
+    diferentes com roupa parecida sendo tratadas como uma só)."""
+    __tablename__ = "suppressed_events"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    store_id = Column(UUID(as_uuid=False), ForeignKey("stores.id"), nullable=False)
+    camera_id = Column(UUID(as_uuid=False), ForeignKey("cameras.id"), nullable=False)
+    matched_camera_id = Column(UUID(as_uuid=False), ForeignKey("cameras.id"), nullable=False)
+    track_id = Column(Integer, nullable=False)
+    confidence = Column(Float, nullable=False)
+    appearance_distance = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 

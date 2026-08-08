@@ -86,3 +86,10 @@ class SuspiciousBehaviorRule:
         confidence = min(0.55 + overshoot * 0.01, 0.97)
         reason = "Mão parada dentro da zona de interesse por tempo prolongado"
         return True, round(confidence, 2), reason
+
+    def forget(self, person_id: str) -> None:
+        """Chamado quando o tracker (ver tracker.py) dá uma pessoa como
+        saída de cena — sem isso, self.trackers cresce sem limite pro
+        resto da vida do processo, já que agora cada pessoa nova ganha um
+        id que nunca se repete (antes era só um índice reciclado)."""
+        self.trackers.pop(person_id, None)

@@ -18,6 +18,7 @@ from config import EXAMPLE_STORE
 from capture import RollingCapture
 from detector import PerceptionPipeline, DETECTION_BACKEND
 from pose_rules import SuspiciousBehaviorRule
+from tracker import IouTracker
 from clip_recorder import ClipRecorder
 from alert_client import AlertClient
 from heartbeat import HeartbeatSender
@@ -51,6 +52,7 @@ def run_camera(store_cfg, camera_cfg):
         zone_points=camera_cfg.zone_of_interest,
         still_frames_threshold=camera_cfg.hand_still_frames_threshold,
     )
+    tracker = IouTracker()
     recorder = ClipRecorder(output_dir="./clips", fps_target=store_cfg.fps_target)
     alert_client = AlertClient(
         api_base_url=store_cfg.api_base_url,
@@ -63,21 +65,30 @@ def run_camera(store_cfg, camera_cfg):
     try:
         for ts, frame in capture.frames():
             signals = perception.process(frame)
+            track_ids = tracker.update([s.person_bbox for s in signals], capture.get_frame_size())
+
+            # Pessoas que o tracker deu como fora de cena (frames demais
+            # sem bater bbox nenhum) — limpa o estado acumulado delas em
+            # outros lugares, senão cresce sem limite pro resto da vida
+            # do processo (ver comentário em SuspiciousBehaviorRule.forget).
+            for ended in tracker.ended_tracks:
+                ended_id = f"person_{ended.track_id}"
+                rule.forget(ended_id)
+                last_alert_at.pop(ended_id, None)
+                if DETECTION_DEBUG:
+                    log.info(f"debug: {ended_id} saiu de cena (borda_do_quadro={ended.exited_frame_edge})")
 
             if DETECTION_DEBUG:
                 if not signals:
                     log.info("debug: nenhuma pessoa detectada neste frame")
-                for i, s in enumerate(signals):
+                for track_id, s in zip(track_ids, signals):
                     log.info(
-                        f"debug: pessoa_{i} conf={s.confidence:.2f} "
+                        f"debug: person_{track_id} conf={s.confidence:.2f} "
                         f"bbox={s.person_bbox} maos_norm={s.hands_norm}"
                     )
 
-            for i, signal in enumerate(signals):
-                # Nota: em produção, usar um tracker real (ex: ByteTrack) pra
-                # manter a identidade da pessoa entre frames. Aqui, índice
-                # simples só pra ilustrar o fluxo.
-                person_id = f"person_{i}"
+            for track_id, signal in zip(track_ids, signals):
+                person_id = f"person_{track_id}"
 
                 is_suspicious, confidence, reason = rule.evaluate(
                     person_id, signal.hands_norm

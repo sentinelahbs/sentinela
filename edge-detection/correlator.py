@@ -18,8 +18,20 @@ lidar com uma conexão de longa duração disputada entre processos.
 
 import sqlite3
 import time
+from dataclasses import dataclass
 
 from appearance import signature_distance
+
+
+@dataclass
+class ContinuationMatch:
+    """O alerta recente (de uma câmera vizinha) que casou com o evento
+    atual — quem chama usa isso pra reportar a supressão de forma
+    auditável (ver SuppressedEvent no backend), não só suprimir calado."""
+    camera_id: str
+    track_id: int
+    distance: float
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS alert_events (
@@ -62,16 +74,21 @@ class LocalCorrelator:
 
     def find_continuation(
         self, camera_id: str, neighbor_camera_ids: list, signature: bytes, now: "float | None" = None
-    ) -> bool:
-        """True se algum alerta recente de uma câmera VIZINHA bate com
-        essa aparência dentro da janela de correlação. Nunca olha pra
-        alertas da própria câmera — dedup dentro da mesma câmera já é
-        feito pelo cooldown em main.py, isso aqui é só entre câmeras.
-        Câmera sem vizinhas cadastradas nunca correlaciona com nada —
-        mantém o comportamento de hoje (um alerta por câmera, sem
-        supressão)."""
+    ) -> "ContinuationMatch | None":
+        """Retorna o melhor (menor distância) alerta recente de uma
+        câmera VIZINHA que bate com essa aparência dentro da janela de
+        correlação, ou None se não achou nenhum. Nunca olha pra alertas
+        da própria câmera — dedup dentro da mesma câmera já é feito pelo
+        cooldown em main.py, isso aqui é só entre câmeras. Câmera sem
+        vizinhas cadastradas nunca correlaciona com nada — mantém o
+        comportamento de hoje (um alerta por câmera, sem supressão).
+
+        Devolver o match (não só um bool) é o que permite reportar a
+        supressão de forma auditável (ver SuppressedEvent no backend) —
+        sem isso não daria pra dizer PRA QUAL câmera/evento essa
+        supressão foi atribuída."""
         if not neighbor_camera_ids:
-            return False
+            return None
         now = now if now is not None else time.time()
         cutoff = now - self.correlation_window_seconds
 
@@ -79,13 +96,20 @@ class LocalCorrelator:
         try:
             placeholders = ",".join("?" for _ in neighbor_camera_ids)
             rows = conn.execute(
-                f"SELECT signature FROM alert_events WHERE camera_id IN ({placeholders}) AND created_at >= ?",
+                f"SELECT camera_id, track_id, signature FROM alert_events "
+                f"WHERE camera_id IN ({placeholders}) AND created_at >= ?",
                 (*neighbor_camera_ids, cutoff),
             ).fetchall()
         finally:
             conn.close()
 
-        return any(signature_distance(signature, row[0]) <= self.appearance_max_distance for row in rows)
+        best = None
+        for row_camera_id, row_track_id, row_signature in rows:
+            distance = signature_distance(signature, row_signature)
+            if distance <= self.appearance_max_distance:
+                if best is None or distance < best.distance:
+                    best = ContinuationMatch(camera_id=row_camera_id, track_id=row_track_id, distance=distance)
+        return best
 
     def record_alert(self, camera_id: str, track_id: int, signature: bytes, now: "float | None" = None) -> None:
         now = now if now is not None else time.time()

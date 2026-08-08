@@ -7,8 +7,19 @@ uma regra genérica "uma pra todas as câmeras", que na prática gera
 excesso de falso positivo.
 """
 
+import json
 import os
 from dataclasses import dataclass, field
+
+
+def _parse_zone_of_interest(raw: str) -> list:
+    """Formato esperado: JSON de lista de pares [x,y] normalizados (0-1),
+    ex: '[[0.1,0.35],[0.9,0.35],[0.9,0.98],[0.1,0.98]]'. String vazia ou
+    ausente = sem zona configurada (zona vira o quadro inteiro, ver
+    SuspiciousBehaviorRule._in_zone em pose_rules.py)."""
+    if not raw:
+        return []
+    return [tuple(point) for point in json.loads(raw)]
 
 
 def build_intelbras_rtsp_url(
@@ -73,7 +84,15 @@ EXAMPLE_STORE = StoreConfig(
             # pra correlação entre câmeras da mesma loja. Copie o ID
             # mostrado no dashboard depois de cadastrar a câmera lá.
             camera_id=os.environ.get("CAMERA_ID", "cam03"),
-            label="Câmera 03 — Corredor 2",
+            # Tudo abaixo era hardcoded pra essa câmera de exemplo — agora
+            # vem de env var, com o valor de exemplo como fallback. Isso é
+            # o que permite rodar duas (ou mais) câmeras DIFERENTES de
+            # verdade ao mesmo tempo, cada uma no seu próprio processo com
+            # seu próprio conjunto de variáveis de ambiente — sem isso,
+            # toda instância deste processo configurava a mesma câmera
+            # fixa do exemplo, não dava pra apontar cada processo pra uma
+            # câmera física diferente da loja.
+            label=os.environ.get("CAMERA_LABEL", "Câmera 03 — Corredor 2"),
             # Exemplo no formato real de DVR/NVR Intelbras (ver
             # build_intelbras_rtsp_url acima e COMPATIBILIDADE_CAMERAS.md).
             # Em produção, troque host/usuário/senha/canal pelos da loja
@@ -81,12 +100,17 @@ EXAMPLE_STORE = StoreConfig(
             source=os.environ.get("CAMERA_SOURCE") or build_intelbras_rtsp_url(
                 host="192.168.0.50", username="admin", password="TROCAR_PELA_SENHA_REAL", channel=1
             ),
-            zone_of_interest=[(0.1, 0.35), (0.9, 0.35), (0.9, 0.98), (0.1, 0.98)],
+            zone_of_interest=_parse_zone_of_interest(
+                os.environ.get("CAMERA_ZONE", "[[0.1,0.35],[0.9,0.35],[0.9,0.98],[0.1,0.98]]")
+            ),
             # Calibrado pra CPU sem GPU: nesse hardware o YOLOX+MediaPipe
             # processam ~1-1.5 frame/s, bem abaixo dos 30fps assumidos no
             # valor padrão da classe (45 frames levaria uns 30s pra
             # acumular aqui, em vez dos ~3s pretendidos). 6 frames ~ 4-5s.
-            hand_still_frames_threshold=6,
+            # Precisa recalibrar por câmera/hardware real (ver
+            # edge_detection_calibration na memória do projeto).
+            hand_still_frames_threshold=int(os.environ.get("CAMERA_HAND_STILL_FRAMES", "6")),
+            min_confidence_to_alert=float(os.environ.get("CAMERA_MIN_CONFIDENCE", "0.55")),
         ),
     ],
 )

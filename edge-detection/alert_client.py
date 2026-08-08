@@ -68,3 +68,32 @@ class AlertClient:
             # a internet caiu por 30 segundos.
             print(f"[AlertClient] Falha ao enviar alerta, será reenfileirado: {exc}")
             return None
+
+    def report_suppressed_event(
+        self,
+        camera_id: str,
+        matched_camera_id: str,
+        track_id: int,
+        confidence: float,
+        appearance_distance: float,
+    ):
+        """Registra no backend que um evento suspeito NÃO virou alerta por
+        ter sido tratado como continuação de um alerta recente numa
+        câmera vizinha (ver correlator.py) — log de auditoria, não um
+        alerta de verdade. Caminho não-crítico: falha aqui nunca deve
+        atrapalhar a detecção continuar rodando, por isso não tem retry
+        nem fila local como o alerta de verdade tem."""
+        url = f"{self.api_base_url}/v1/stores/{self.store_id}/suppressed-events"
+        headers = {"X-API-Key": self.api_key}
+        data = {
+            "camera_id": camera_id,
+            "matched_camera_id": matched_camera_id,
+            "track_id": track_id,
+            "confidence": confidence,
+            "appearance_distance": appearance_distance,
+        }
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            print(f"[AlertClient] Falha ao registrar supressão (não crítico): {exc}")

@@ -122,13 +122,23 @@ def run_camera(store_cfg, camera_cfg):
                 # registra primeiro "vence"; a segunda vê o registro da
                 # primeira e se suprime).
                 signature = color_signature(frame, signal.person_bbox)
-                is_continuation = correlator.find_continuation(camera_cfg.camera_id, neighbor_camera_ids, signature)
+                continuation = correlator.find_continuation(camera_cfg.camera_id, neighbor_camera_ids, signature)
                 correlator.record_alert(camera_cfg.camera_id, track_id, signature)
 
-                if is_continuation:
+                if continuation is not None:
                     log.info(
                         f"Evento suspeito (confiança={confidence}) tratado como continuação de um "
-                        f"alerta recente numa câmera vizinha — não reenviado: {reason}"
+                        f"alerta recente na câmera {continuation.camera_id} "
+                        f"(distância={continuation.distance:.3f}) — não reenviado: {reason}"
+                    )
+                    # Log de auditoria (ver SuppressedEvent no backend) —
+                    # não crítico, se falhar não deve travar a detecção.
+                    alert_client.report_suppressed_event(
+                        camera_id=camera_cfg.camera_id,
+                        matched_camera_id=continuation.camera_id,
+                        track_id=track_id,
+                        confidence=confidence,
+                        appearance_distance=continuation.distance,
                     )
                     continue
 

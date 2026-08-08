@@ -20,6 +20,9 @@ edge-detection/openh264*.dll
 # Clipes gravados localmente em teste (saída, não código)
 edge-detection/clips/
 
+# Base local do correlator (ver correlator.py) — estado de runtime da box, não código
+edge-detection/correlator.db*
+
 # Node / Vite
 dashboard/node_modules/
 dashboard/dist/

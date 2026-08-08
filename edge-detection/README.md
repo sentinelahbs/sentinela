@@ -121,16 +121,35 @@ no erro do terminal se a versão errada for baixada).
   quando o hardware real da loja for escolhido, já que fps varia por
   máquina)
 
+## Compatibilidade com CFTV/DVR (Intelbras)
+
+Ver [`COMPATIBILIDADE_CAMERAS.md`](./COMPATIBILIDADE_CAMERAS.md) — cobre
+o formato de URL RTSP de DVR/NVR Intelbras (analógico via coaxial e IP,
+ambos suportados do mesmo jeito), transporte TCP forçado, reconexão
+automática em queda de stream, e o que ainda falta testar contra
+hardware real.
+
 ## O que falta para produção (próximos passos)
 
-- Tracker de pessoa real entre frames (ex: ByteTrack), em vez do índice
-  simples usado aqui — importante pra loja com mais de uma pessoa no quadro
-- Fila local (ex: SQLite) para reenviar alertas se a internet cair
-- Um processo supervisor que reinicia a câmera automaticamente se o stream
-  RTSP cair — hoje `capture.py` só espera 1s e tenta ler de novo
-  indefinidamente, sem reconexão de verdade
-- Fluxo de cadastro de câmera por loja no dashboard (a tabela `cameras`
-  existe no backend, mas ainda não tem tela — por isso `camera_id` não é
-  enviado pelo alert_client hoje)
+- **Testar contra um DVR/NVR Intelbras real** — tudo em
+  `COMPATIBILIDADE_CAMERAS.md` foi implementado e testado com mocks, mas
+  nunca rodou contra o equipamento de verdade.
+- Fila local (ex: SQLite) para reenviar alertas se a internet cair — hoje
+  uma falha de rede na hora de enviar o alerta só loga o erro, o clipe
+  fica local mas não há retry automático depois.
+- Um processo supervisor por loja que sobe um processo por câmera/canal
+  do DVR — hoje `main.py` ainda é MVP de uma câmera só
+  (`EXAMPLE_STORE.cameras[0]`).
 - Documentar a instalação no hardware real da loja (mini-PC) — testado só
-  em notebook/webcam até agora
+  em notebook/webcam até agora.
+
+### Já resolvido (não é mais pendência)
+
+- ~~Tracker de pessoa real entre frames~~ — `tracker.py` (IOU + fallback
+  por distância de centro), com identidade estável entre frames da mesma
+  câmera.
+- ~~Reconexão automática de stream~~ — `capture.py` recria a conexão do
+  zero após falhas seguidas, com backoff exponencial (ver
+  `COMPATIBILIDADE_CAMERAS.md`).
+- ~~Fluxo de cadastro de câmera por loja~~ — aba "Câmeras" no dashboard,
+  `camera_id` real enviado e validado pelo backend.

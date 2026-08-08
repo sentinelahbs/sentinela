@@ -11,6 +11,26 @@ import os
 from dataclasses import dataclass, field
 
 
+def build_intelbras_rtsp_url(
+    host: str, username: str, password: str, channel: int, port: int = 554, main_stream: bool = False
+) -> str:
+    """Monta a URL RTSP no formato usado por DVR/NVR Intelbras (firmware
+    derivado da Dahua — linhas MHDX, iMHDX, NVD) e pela maioria das câmeras
+    IP standalone da Intelbras (linha VIP), que usam o mesmo esquema.
+
+    channel é o número do canal no DVR — cada câmera ligada nele (analógica
+    via coaxial OU IP, tanto faz) aparece como um canal independente. Pro
+    nosso código isso é transparente: os dois tipos viram a mesma URL RTSP
+    (ver COMPATIBILIDADE_CAMERAS.md pra mais detalhes).
+
+    subtype=1 (sub-stream, resolução mais baixa) é o padrão de propósito:
+    o stream principal (subtype=0, main_stream=True) custa decodificação
+    de CPU que a box já não tem sobrando — sem GPU, a inferência sozinha
+    já é o gargalo (ver detector.py)."""
+    subtype = 0 if main_stream else 1
+    return f"rtsp://{username}:{password}@{host}:{port}/cam/realmonitor?channel={channel}&subtype={subtype}"
+
+
 @dataclass
 class CameraConfig:
     camera_id: str
@@ -54,7 +74,13 @@ EXAMPLE_STORE = StoreConfig(
             # mostrado no dashboard depois de cadastrar a câmera lá.
             camera_id=os.environ.get("CAMERA_ID", "cam03"),
             label="Câmera 03 — Corredor 2",
-            source=os.environ.get("CAMERA_SOURCE", "rtsp://usuario:senha@192.168.0.50:554/stream1"),
+            # Exemplo no formato real de DVR/NVR Intelbras (ver
+            # build_intelbras_rtsp_url acima e COMPATIBILIDADE_CAMERAS.md).
+            # Em produção, troque host/usuário/senha/canal pelos da loja
+            # de verdade — normalmente via CAMERA_SOURCE já pronta.
+            source=os.environ.get("CAMERA_SOURCE") or build_intelbras_rtsp_url(
+                host="192.168.0.50", username="admin", password="TROCAR_PELA_SENHA_REAL", channel=1
+            ),
             zone_of_interest=[(0.1, 0.35), (0.9, 0.35), (0.9, 0.98), (0.1, 0.98)],
             # Calibrado pra CPU sem GPU: nesse hardware o YOLOX+MediaPipe
             # processam ~1-1.5 frame/s, bem abaixo dos 30fps assumidos no

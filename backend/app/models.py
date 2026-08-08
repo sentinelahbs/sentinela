@@ -132,6 +132,22 @@ class Camera(Base):
     store = relationship("Store", back_populates="cameras")
 
 
+class CameraNeighbor(Base):
+    """Marca manual do dono da loja: 'essas duas câmeras cobrem áreas
+    fisicamente adjacentes'. Usado pela correlação no edge (uma pessoa que
+    some da câmera A e aparece na câmera B logo depois só é considerada a
+    mesma se as duas forem vizinhas — evita correlacionar câmeras de
+    pontas opostas da loja). Par não-ordenado: sempre armazenado com
+    camera_id_a < camera_id_b (ver cameras.py) pra nunca duplicar (A,B) e
+    (B,A) como linhas diferentes."""
+    __tablename__ = "camera_neighbors"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    camera_id_a = Column(UUID(as_uuid=False), ForeignKey("cameras.id"), nullable=False)
+    camera_id_b = Column(UUID(as_uuid=False), ForeignKey("cameras.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 

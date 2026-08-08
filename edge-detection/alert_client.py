@@ -36,11 +36,15 @@ class AlertClient:
             "confidence": confidence,
             "reason": reason,
         }
-        # camera_id não é enviado de propósito: no backend é FK pra uma
-        # linha real na tabela "cameras", e ainda não existe fluxo de
-        # cadastro de câmera por loja — mandar qualquer valor aqui (ex:
-        # "cam03" do config.py) quebra a inserção por violar a chave
-        # estrangeira. O campo é opcional no backend (fica None).
+        # camera_id é o ID real da câmera cadastrada no dashboard (ver
+        # config.py — CAMERA_ID), não mais um rótulo qualquer. Só inclui
+        # no form se estiver de fato configurado: o backend valida que
+        # corresponde a uma câmera ativa daquela loja e ignora
+        # silenciosamente qualquer valor que não bata (ex: box ainda no
+        # placeholder "cam03", câmera removida) — nunca quebra o envio do
+        # alerta por causa disso.
+        if camera_id:
+            data["camera_id"] = camera_id
         # Lê o clipe como bytes e manda como tupla explícita (nome, bytes,
         # content-type) em vez de passar o arquivo aberto direto — passado
         # cru, o requests monta a parte multipart de um jeito que o backend

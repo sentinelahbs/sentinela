@@ -47,7 +47,12 @@ EXAMPLE_STORE = StoreConfig(
     api_key=os.environ.get("STORE_API_KEY", "TROCAR_PELA_CHAVE_REAL_DA_LOJA"),
     cameras=[
         CameraConfig(
-            camera_id="cam03",
+            # ID real da câmera cadastrada no dashboard (aba "Câmeras") —
+            # não é mais um rótulo qualquer: o backend usa isso pra
+            # vincular o alerta à câmera certa (FK em alerts.camera_id) e
+            # pra correlação entre câmeras da mesma loja. Copie o ID
+            # mostrado no dashboard depois de cadastrar a câmera lá.
+            camera_id=os.environ.get("CAMERA_ID", "cam03"),
             label="Câmera 03 — Corredor 2",
             source=os.environ.get("CAMERA_SOURCE", "rtsp://usuario:senha@192.168.0.50:554/stream1"),
             zone_of_interest=[(0.1, 0.35), (0.9, 0.35), (0.9, 0.98), (0.1, 0.98)],

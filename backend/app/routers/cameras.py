@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Camera, Store, Company, User, UserRole
-from schemas import CameraOut, CameraCreateIn
+from models import Camera, CameraNeighbor, Store, Company, User, UserRole
+from schemas import CameraOut, CameraCreateIn, CameraNeighborOut, CameraNeighborCreateIn
 from auth import get_current_user, assert_user_can_access_store
 from tenant_context import set_company_context
 
@@ -107,4 +107,104 @@ def remove_camera(
     # Desativa em vez de apagar — mantém o histórico de alertas antigos
     # dessa câmera íntegro (Alert.camera_id referencia esse registro).
     camera.active = False
+    db.commit()
+
+
+# --- Vizinhança física entre câmeras (usado pela correlação no edge) -------
+# Marcação manual do dono: quais câmeras da mesma loja cobrem áreas
+# adjacentes. Ver CameraNeighbor em models.py e a migração
+# add_camera_neighbors — o par é sempre gravado com camera_id_a <
+# camera_id_b, pra nunca duplicar (A,B) e (B,A) como linhas diferentes.
+
+def _ordered_pair(camera_id_a: str, camera_id_b: str) -> tuple[str, str]:
+    return (camera_id_a, camera_id_b) if camera_id_a < camera_id_b else (camera_id_b, camera_id_a)
+
+
+@router.get("/neighbors", response_model=list[CameraNeighborOut])
+def list_camera_neighbors(
+    store_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if store is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Loja não encontrada")
+    assert_user_can_access_store(user, store)
+
+    store_camera_ids = [c.id for c in db.query(Camera.id).filter(Camera.store_id == store_id).all()]
+    if not store_camera_ids:
+        return []
+    return (
+        db.query(CameraNeighbor)
+        .filter(
+            CameraNeighbor.camera_id_a.in_(store_camera_ids),
+            CameraNeighbor.camera_id_b.in_(store_camera_ids),
+        )
+        .all()
+    )
+
+
+@router.post("/neighbors", response_model=CameraNeighborOut)
+def create_camera_neighbor(
+    store_id: str,
+    payload: CameraNeighborCreateIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user.role != UserRole.OWNER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas o dono da conta pode marcar câmeras vizinhas")
+
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if store is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Loja não encontrada")
+    assert_user_can_access_store(user, store)
+
+    if payload.camera_id_a == payload.camera_id_b:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uma câmera não pode ser vizinha dela mesma")
+
+    cam_a = db.query(Camera).filter(Camera.id == payload.camera_id_a, Camera.store_id == store_id, Camera.active.is_(True)).first()
+    cam_b = db.query(Camera).filter(Camera.id == payload.camera_id_b, Camera.store_id == store_id, Camera.active.is_(True)).first()
+    if cam_a is None or cam_b is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Câmera não encontrada nesta loja")
+
+    id_a, id_b = _ordered_pair(payload.camera_id_a, payload.camera_id_b)
+
+    existing = db.query(CameraNeighbor).filter(
+        CameraNeighbor.camera_id_a == id_a, CameraNeighbor.camera_id_b == id_b
+    ).first()
+    if existing is not None:
+        return existing
+
+    neighbor = CameraNeighbor(camera_id_a=id_a, camera_id_b=id_b)
+    db.add(neighbor)
+    db.commit()
+    db.refresh(neighbor)
+    return neighbor
+
+
+@router.delete("/neighbors/{neighbor_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_camera_neighbor(
+    store_id: str,
+    neighbor_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user.role != UserRole.OWNER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas o dono da conta pode desfazer vizinhança de câmeras")
+
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if store is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Loja não encontrada")
+    assert_user_can_access_store(user, store)
+
+    store_camera_ids = [c.id for c in db.query(Camera.id).filter(Camera.store_id == store_id).all()]
+    neighbor = db.query(CameraNeighbor).filter(
+        CameraNeighbor.id == neighbor_id,
+        CameraNeighbor.camera_id_a.in_(store_camera_ids),
+        CameraNeighbor.camera_id_b.in_(store_camera_ids),
+    ).first()
+    if neighbor is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Vizinhança não encontrada")
+
+    db.delete(neighbor)
     db.commit()

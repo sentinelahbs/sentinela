@@ -31,6 +31,7 @@ import {
   QrCode,
   Wifi,
   WifiOff,
+  Link2,
 } from "lucide-react";
 
 // Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
@@ -1509,6 +1510,245 @@ function StatusPanel({ stores }) {
   );
 }
 
+function CamerasPanel({ api, stores }) {
+  const [selectedStoreId, setSelectedStoreId] = useState(stores[0]?.id || null);
+  const [cameras, setCameras] = useState([]);
+  const [neighbors, setNeighbors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [newLabel, setNewLabel] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
+
+  useEffect(() => {
+    if (!selectedStoreId && stores.length > 0) setSelectedStoreId(stores[0].id);
+  }, [stores, selectedStoreId]);
+
+  const loadData = useCallback(() => {
+    if (!selectedStoreId) return;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      api(`/v1/stores/${selectedStoreId}/cameras`),
+      api(`/v1/stores/${selectedStoreId}/cameras/neighbors`),
+    ])
+      .then(([camerasData, neighborsData]) => {
+        setCameras(camerasData);
+        setNeighbors(neighborsData);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, [api, selectedStoreId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  async function addCamera(e) {
+    e.preventDefault();
+    if (!newLabel.trim()) return;
+    setAdding(true);
+    setError(null);
+    try {
+      const camera = await api(`/v1/stores/${selectedStoreId}/cameras`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: newLabel.trim() }),
+      });
+      setCameras((prev) => [...prev, camera]);
+      setNewLabel("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function removeCamera(id) {
+    try {
+      await api(`/v1/stores/${selectedStoreId}/cameras/${id}`, { method: "DELETE" });
+      setCameras((prev) => prev.filter((c) => c.id !== id));
+      setNeighbors((prev) => prev.filter((n) => n.camera_id_a !== id && n.camera_id_b !== id));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function copyId(id) {
+    navigator.clipboard?.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 1500);
+  }
+
+  function findNeighborPair(idA, idB) {
+    return neighbors.find(
+      (n) => (n.camera_id_a === idA && n.camera_id_b === idB) || (n.camera_id_a === idB && n.camera_id_b === idA)
+    );
+  }
+
+  async function toggleNeighbor(idA, idB) {
+    const existing = findNeighborPair(idA, idB);
+    try {
+      if (existing) {
+        await api(`/v1/stores/${selectedStoreId}/cameras/neighbors/${existing.id}`, { method: "DELETE" });
+        setNeighbors((prev) => prev.filter((n) => n.id !== existing.id));
+      } else {
+        const created = await api(`/v1/stores/${selectedStoreId}/cameras/neighbors`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ camera_id_a: idA, camera_id_b: idB }),
+        });
+        setNeighbors((prev) => [...prev, created]);
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  if (stores.length === 0) {
+    return (
+      <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
+        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Câmeras</div>
+        <div style={{ color: COLORS.textFaint, fontSize: 13 }}>Nenhuma loja cadastrada ainda.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: 22 }} className="lp-scroll">
+      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Câmeras</div>
+      <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 16, maxWidth: 560 }}>
+        Cadastre as câmeras de cada loja e use o ID pra configurar a box de detecção (variável CAMERA_ID).
+        Marque quais câmeras cobrem áreas vizinhas — isso alimenta a correlação de eventos entre câmeras.
+      </p>
+
+      {stores.length > 1 && (
+        <select
+          value={selectedStoreId || ""}
+          onChange={(e) => setSelectedStoreId(e.target.value)}
+          style={{ ...inputStyle, width: "auto", marginBottom: 18 }}
+        >
+          {stores.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+      )}
+
+      <ErrorNote message={error} />
+
+      {loading ? (
+        <div style={{ color: COLORS.textFaint, fontSize: 13 }}>Carregando câmeras…</div>
+      ) : (
+        <>
+          <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+            {cameras.length === 0 && (
+              <div style={{ padding: "14px 16px", fontSize: 12.5, color: COLORS.textFaint }}>
+                Nenhuma câmera cadastrada nesta loja ainda.
+              </div>
+            )}
+            {cameras.map((camera, i) => (
+              <div
+                key={camera.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  padding: "12px 16px",
+                  borderTop: i === 0 ? "none" : `1px solid ${COLORS.borderSoft}`,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  <Camera size={15} color={COLORS.textFaint} />
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{camera.label}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <code style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint, background: COLORS.panelAlt, borderRadius: 5, padding: "3px 7px" }}>
+                    {camera.id.slice(0, 8)}…
+                  </code>
+                  <button
+                    className="lp-btn"
+                    onClick={() => copyId(camera.id)}
+                    title="Copiar ID completo (usar como CAMERA_ID na box)"
+                    style={{ border: "none", background: "transparent", color: copiedId === camera.id ? COLORS.teal : COLORS.textFaint, display: "flex" }}
+                  >
+                    {copiedId === camera.id ? <Check size={13} /> : <Copy size={13} />}
+                  </button>
+                  <button
+                    className="lp-btn"
+                    onClick={() => removeCamera(camera.id)}
+                    title="Remover câmera"
+                    style={{ border: "none", background: "transparent", color: COLORS.textFaint, display: "flex" }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <form onSubmit={addCamera} style={{ display: "flex", gap: 8, marginBottom: 28 }}>
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="Ex: Câmera 03 — Corredor 2"
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <button
+              type="submit"
+              disabled={adding}
+              className="lp-btn"
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 14px", borderRadius: 8, border: "none", background: COLORS.amber, color: "#1a1200", fontSize: 13, fontWeight: 600 }}
+            >
+              {adding ? <Loader2 size={14} className="lp-spin" /> : <Plus size={14} />}
+              Adicionar câmera
+            </button>
+          </form>
+
+          {cameras.length >= 2 && (
+            <>
+              <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                <Link2 size={14} color={COLORS.textFaint} />
+                Câmeras vizinhas
+              </div>
+              <p style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 14, maxWidth: 560 }}>
+                Marque pares de câmeras que cobrem áreas fisicamente próximas na loja (ex: duas câmeras que enxergam o mesmo corredor por ângulos diferentes).
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {cameras.map((camera) => {
+                  const others = cameras.filter((c) => c.id !== camera.id);
+                  if (others.length === 0) return null;
+                  return (
+                    <div key={camera.id} style={{ padding: "10px 14px", background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 9 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>{camera.label}</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                        {others.map((other) => (
+                          <label key={other.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: COLORS.textMuted, cursor: "pointer" }}>
+                            <input
+                              type="checkbox"
+                              checked={!!findNeighborPair(camera.id, other.id)}
+                              onChange={() => toggleNeighbor(camera.id, other.id)}
+                              style={{ accentColor: COLORS.amber }}
+                            />
+                            {other.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ onLogout }) {
   const api = useApiClient(onLogout);
 
@@ -1520,7 +1760,7 @@ function Dashboard({ onLogout }) {
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [error, setError] = useState(null);
   const [showAddStore, setShowAddStore] = useState(false);
-  const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team" | "billing" | "status"
+  const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team" | "billing" | "status" | "cameras"
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("vigia_sound_enabled") !== "false");
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
@@ -1700,6 +1940,15 @@ function Dashboard({ onLogout }) {
         </button>
 
         <button
+          className="lp-btn lp-nav"
+          onClick={() => { setActiveView("cameras"); setShowMobileNav(false); }}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: activeView === "cameras" ? COLORS.panelAlt : "transparent", color: activeView === "cameras" ? COLORS.text : COLORS.textFaint, fontSize: 12.5, textAlign: "left", marginTop: 2 }}
+        >
+          <Camera size={13} />
+          Câmeras
+        </button>
+
+        <button
           className="lp-btn"
           onClick={() => setSoundEnabled((prev) => !prev)}
           style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: "transparent", color: COLORS.textFaint, fontSize: 12.5, textAlign: "left" }}
@@ -1761,6 +2010,8 @@ function Dashboard({ onLogout }) {
           <BillingPanel api={api} />
         ) : activeView === "status" ? (
           <StatusPanel stores={stores} />
+        ) : activeView === "cameras" ? (
+          <CamerasPanel api={api} stores={stores} />
         ) : showEmptyState ? (
           <div className="lp-fade-up" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: COLORS.textFaint }}>
             <Building2 size={28} color={COLORS.textFaint} style={{ opacity: 0.6 }} />

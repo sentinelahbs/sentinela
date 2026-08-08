@@ -202,6 +202,20 @@ class CameraCreateIn(BaseModel):
     label: str
 
 
+class CameraNeighborOut(BaseModel):
+    id: str
+    camera_id_a: str
+    camera_id_b: str
+
+    class Config:
+        from_attributes = True
+
+
+class CameraNeighborCreateIn(BaseModel):
+    camera_id_a: str
+    camera_id_b: str
+
+
 class SubscribeIn(BaseModel):
     cpf_cnpj: str          # CPF ou CNPJ do responsável/empresa, exigido pelo Asaas
     camera_packages: int    # quantidade de pacotes de 5 câmeras (mínimo 1)

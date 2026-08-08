@@ -1,3 +1,4 @@
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
@@ -5,7 +6,7 @@ from sqlalchemy.orm import Session
 import datetime
 
 from database import get_db
-from models import Alert, AlertStatus, Store, User
+from models import Alert, AlertStatus, Camera, Store, User
 from schemas import AlertOut, AlertReviewIn
 from auth import get_current_user, get_store_from_edge_key, assert_user_can_access_store
 from storage import ClipStorage
@@ -32,6 +33,24 @@ def receive_alert(
     """Endpoint chamado pela box de cada loja (ver alert_client.py do
     módulo de detecção). Autenticado por API key da loja, não por login
     de usuário — quem chama aqui é um dispositivo, não uma pessoa."""
+
+    # camera_id vem de fora (config da box) — nunca confia cru. Boxes
+    # ainda não migradas mandam um placeholder de texto livre (ex:
+    # "cam03", não um UUID) — validar o formato antes de consultar evita
+    # que isso vire erro 500 (o driver do Postgres rejeita um valor não-
+    # UUID ao comparar com a coluna). Se não corresponder a uma câmera
+    # ativa cadastrada NESSA loja (formato inválido, box mal configurada,
+    # câmera removida, id de outra loja etc.), grava o alerta do mesmo
+    # jeito mas sem o vínculo, em vez de derrubar a inserção inteira.
+    if camera_id is not None:
+        try:
+            uuid.UUID(camera_id)
+        except ValueError:
+            camera_id = None
+        else:
+            camera = db.query(Camera).filter(Camera.id == camera_id, Camera.store_id == store_id, Camera.active.is_(True)).first()
+            if camera is None:
+                camera_id = None
 
     clip_bytes = clip.file.read()
     clip_url = clip_storage.upload_clip(store_id, clip_bytes, clip.content_type)

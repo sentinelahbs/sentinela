@@ -8,12 +8,13 @@ cadastro é explícito e checado contra o limite contratado.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Camera, CameraNeighbor, Store, Company, User, UserRole
 from schemas import CameraOut, CameraCreateIn, CameraNeighborOut, CameraNeighborCreateIn
-from auth import get_current_user, assert_user_can_access_store
+from auth import get_current_user, get_store_from_edge_key, assert_user_can_access_store
 from tenant_context import set_company_context
 
 router = APIRouter(prefix="/v1/stores/{store_id}/cameras", tags=["cameras"])
@@ -216,3 +217,25 @@ def remove_camera_neighbor(
 
     db.delete(neighbor)
     db.commit()
+
+
+@router.get("/{camera_id}/neighbor-ids", response_model=list[str])
+def list_camera_neighbor_ids(
+    store_id: str,
+    camera_id: str,
+    store: Store = Depends(get_store_from_edge_key),
+    db: Session = Depends(get_db),
+):
+    """Usado pela BOX de detecção (autenticação por API key da loja, não
+    login de usuário — ver correlator.py/store_topology.py no módulo de
+    detecção) pra saber quais outras câmeras da mesma loja foram
+    marcadas como vizinhas no dashboard. Só devolve os IDs do "outro
+    lado" de cada par — a box já sabe o próprio camera_id."""
+    camera = db.query(Camera).filter(Camera.id == camera_id, Camera.store_id == store_id, Camera.active.is_(True)).first()
+    if camera is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Câmera não encontrada nesta loja")
+
+    pairs = db.query(CameraNeighbor).filter(
+        or_(CameraNeighbor.camera_id_a == camera_id, CameraNeighbor.camera_id_b == camera_id)
+    ).all()
+    return [(p.camera_id_b if p.camera_id_a == camera_id else p.camera_id_a) for p in pairs]

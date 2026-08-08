@@ -175,9 +175,17 @@ def create_camera_neighbor(
     if existing is not None:
         return existing
 
+    # Valor puro antes do commit: depois dele o SQLAlchemy expira os
+    # atributos de `user` (só lido), e reler user.company_id exigiria um
+    # SELECT que o RLS ainda não liberou nesse instante.
+    company_id = user.company_id
+
     neighbor = CameraNeighbor(camera_id_a=id_a, camera_id_b=id_b)
     db.add(neighbor)
     db.commit()
+    # commit() encerra a transação e reseta o SET LOCAL setado pelo
+    # get_current_user — precisa religar antes do refresh() abaixo.
+    set_company_context(db, company_id)
     db.refresh(neighbor)
     return neighbor
 

@@ -46,6 +46,11 @@ class StoreCreateIn(BaseModel):
     city: Optional[str] = None
 
 
+class EdgeWhoamiOut(BaseModel):
+    store_id: str
+    store_name: str
+
+
 class StoreCreateOut(BaseModel):
     id: str
     name: str

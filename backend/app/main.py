@@ -42,6 +42,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(stores.router)
+app.include_router(stores.edge_router)
 app.include_router(alerts.router)
 app.include_router(team.router)
 app.include_router(team.invite_router)

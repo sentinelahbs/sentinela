@@ -31,6 +31,16 @@ def set_store_lookup(db: Session, store_id: str) -> None:
     db.execute(text("SET LOCAL app.lookup_store_id = :sid"), {"sid": store_id})
 
 
+def set_edge_api_key_lookup(db: Session, api_key: str) -> None:
+    """Usado só por GET /v1/edge/whoami — o assistente de configuração da
+    box tem a chave da loja (mostrada uma vez no dashboard ao criar a
+    loja) mas ainda não sabe o store_id, que é o que essa consulta
+    resolve. Mesmo princípio de set_invite_lookup: posse da chave é a
+    credencial. Diferente de set_store_lookup (que já parte de um
+    store_id conhecido), aqui a busca é pelo valor da própria chave."""
+    db.execute(text("SET LOCAL app.lookup_edge_api_key = :key"), {"key": api_key})
+
+
 def set_invite_lookup(db: Session, token: str) -> None:
     """Usado nos endpoints públicos de convite (/v1/invites/{token}), onde
     quem chama ainda não tem conta nem token JWT — a posse do token de

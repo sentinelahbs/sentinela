@@ -1,16 +1,20 @@
 import datetime
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Store, User, UserRole
-from schemas import StoreOut, StoreCreateIn, StoreCreateOut
+from schemas import StoreOut, StoreCreateIn, StoreCreateOut, EdgeWhoamiOut
 from auth import get_current_user, get_store_from_edge_key
-from tenant_context import set_company_context
+from tenant_context import set_company_context, set_edge_api_key_lookup
 
 router = APIRouter(prefix="/v1/stores", tags=["stores"])
+# Rotas que a BOX chama sem ainda saber o store_id (só tem a chave) —
+# path separado de /v1/stores/{store_id}/... porque store_id ainda não
+# existe nesse momento (ver set_edge_api_key_lookup).
+edge_router = APIRouter(prefix="/v1/edge", tags=["edge"])
 
 
 @router.get("", response_model=list[StoreOut])
@@ -73,3 +77,23 @@ def store_heartbeat(store: Store = Depends(get_store_from_edge_key), db: Session
     if store.onboarding_status == "pending":
         store.onboarding_status = "in_progress"
     db.commit()
+
+
+@edge_router.get("/whoami", response_model=EdgeWhoamiOut)
+def edge_whoami(
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    db: Session = Depends(get_db),
+):
+    """Usado pelo assistente de configuração da box (roda no PC do
+    cliente) — resolve o store_id a partir só da chave da loja, pra quem
+    está instalando não precisar digitar/colar os dois valores (o
+    dashboard nunca mostrou o store_id como algo copiável, só a chave)."""
+    if not x_api_key:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-API-Key ausente")
+
+    set_edge_api_key_lookup(db, x_api_key)
+    store = db.query(Store).filter(Store.edge_api_key == x_api_key).first()
+    if store is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave inválida")
+
+    return EdgeWhoamiOut(store_id=store.id, store_name=store.name)

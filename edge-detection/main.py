@@ -14,7 +14,7 @@ import os
 import time
 import logging
 
-from config import EXAMPLE_STORE
+from config import ACTIVE_STORE
 from capture import RollingCapture
 from detector import PerceptionPipeline, DETECTION_BACKEND
 from pose_rules import SuspiciousBehaviorRule
@@ -176,10 +176,15 @@ if __name__ == "__main__":
     # da loja deveria iniciar o sender, pra não mandar heartbeats
     # duplicados. Por agora, MVP de uma câmera só, sem esse problema.
     HeartbeatSender(
-        api_base_url=EXAMPLE_STORE.api_base_url,
-        api_key=EXAMPLE_STORE.api_key,
-        store_id=EXAMPLE_STORE.store_id,
+        api_base_url=ACTIVE_STORE.api_base_url,
+        api_key=ACTIVE_STORE.api_key,
+        store_id=ACTIVE_STORE.store_id,
     ).start()
 
-    # MVP: uma câmera. Em produção, um processo (ou thread) por câmera da loja.
-    run_camera(EXAMPLE_STORE, EXAMPLE_STORE.cameras[0])
+    # ACTIVE_STORE já pode ter várias câmeras (ver box_config.json/
+    # setup_wizard.py) — mas cada PROCESSO ainda roda uma só (falta o
+    # supervisor multi-câmera). CAMERA_INDEX escolhe qual, pra testar
+    # manualmente mais de uma câmera do mesmo box_config.json ao mesmo
+    # tempo (um processo por índice), até o supervisor existir de verdade.
+    camera_index = int(os.environ.get("CAMERA_INDEX", "0"))
+    run_camera(ACTIVE_STORE, ACTIVE_STORE.cameras[camera_index])

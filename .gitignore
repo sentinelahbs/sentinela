@@ -2,6 +2,11 @@
 backend/.env
 .env
 
+# Gerado pelo assistente de configuração (setup_wizard.py) -- tem chave
+# da loja e senha do DVR em texto puro, é config de instalação de cada
+# loja, não código
+edge-detection/box_config.json
+
 # Python
 backend/app/__pycache__/
 backend/app/**/__pycache__/

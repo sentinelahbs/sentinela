@@ -14,10 +14,13 @@ A decisão final é sempre humana, feita no dashboard.
 capture.py        → lê o stream RTSP da câmera, mantém buffer de pré-evento
 detector.py        → detecta pessoas (YOLOv8 ou YOLOX) + posição das mãos (MediaPipe Pose)
 pose_rules.py       → decide se o padrão observado é "suspeito" (heurística, não IA treinada)
+tracker.py          → mantém identidade da pessoa entre frames da mesma câmera
+correlator.py        → evita alerta duplicado quando a pessoa passa por câmeras vizinhas
 clip_recorder.py    → grava o clipe (antes + depois do evento) e gera thumbnail
 alert_client.py     → envia o evento pro backend (mesmo que alimenta o dashboard)
 main.py             → orquestra tudo, um processo por câmera
 config.py           → configuração por loja e por câmera (zona de interesse, thresholds)
+setup_wizard.py      → assistente gráfico de instalação (ver seção abaixo)
 ```
 
 ## Backend de detecção de pessoa: YOLOv8 vs YOLOX
@@ -121,6 +124,41 @@ no erro do terminal se a versão errada for baixada).
   quando o hardware real da loja for escolhido, já que fps varia por
   máquina)
 
+## Instalando numa loja (assistente de configuração)
+
+Pra quem está instalando não precisar editar variável de ambiente nem
+abrir terminal, existe um assistente gráfico:
+
+```bash
+python setup_wizard.py
+```
+
+Ele pede, em 3 passos: (1) a chave da loja (mostrada no dashboard ao
+cadastrar a loja — resolve o store_id sozinho, via `GET /v1/edge/whoami`),
+(2) os dados do DVR (IP, usuário, senha), e (3) uma ou mais câmeras — cole
+o ID de cada uma (copiado da aba "Câmeras" do dashboard, onde elas
+precisam ser cadastradas ANTES de rodar o assistente) e o canal
+correspondente no DVR. Tem um botão "Testar conexões" que confirma se dá
+pra abrir o stream de cada câmera antes de salvar.
+
+O resultado é `box_config.json` (nunca commitado — tem senha do DVR e
+chave da loja em texto puro, ver `.gitignore`), que `main.py` carrega
+automaticamente se existir (`config.ACTIVE_STORE`), sem precisar de
+nenhuma variável de ambiente. Rodando sem o assistente (`CAMERA_SOURCE`,
+`STORE_*` etc. por env var, como antes), continua funcionando igual —
+o assistente é aditivo, não obrigatório.
+
+Como ainda não existe o supervisor multi-câmera (ver "O que falta"
+abaixo), cada processo roda uma câmera só — `CAMERA_INDEX` (padrão `0`)
+escolhe qual câmera de `box_config.json` esse processo em particular
+representa, pra testar manualmente mais de uma câmera do mesmo arquivo
+ao mesmo tempo (um processo por índice):
+
+```bash
+$env:CAMERA_INDEX = "1"   # roda a segunda câmera do box_config.json
+python main.py
+```
+
 ## Compatibilidade com CFTV/DVR (Intelbras)
 
 Ver [`COMPATIBILIDADE_CAMERAS.md`](./COMPATIBILIDADE_CAMERAS.md) — cobre
@@ -137,9 +175,17 @@ hardware real.
 - Fila local (ex: SQLite) para reenviar alertas se a internet cair — hoje
   uma falha de rede na hora de enviar o alerta só loga o erro, o clipe
   fica local mas não há retry automático depois.
-- Um processo supervisor por loja que sobe um processo por câmera/canal
-  do DVR — hoje `main.py` ainda é MVP de uma câmera só
-  (`EXAMPLE_STORE.cameras[0]`).
+- **Processo supervisor multi-câmera** — hoje cada processo roda uma
+  câmera só (`CAMERA_INDEX`, ver seção do assistente acima); falta algo
+  que suba um processo por câmera automaticamente e reinicie se um
+  cair, pra não precisar abrir N janelas de terminal na mão.
+- Empacotamento pra instalação sem Python (Python embarcável + serviço
+  do Windows via NSSM, ver decisão registrada na conversa do projeto) —
+  o assistente hoje ainda precisa do ambiente Python já configurado
+  pra rodar.
+- Fila local (ex: SQLite) para reenviar alertas se a internet cair — hoje
+  uma falha de rede na hora de enviar o alerta só loga o erro, o clipe
+  fica local mas não há retry automático depois.
 - Documentar a instalação no hardware real da loja (mini-PC) — testado só
   em notebook/webcam até agora.
 
@@ -153,3 +199,6 @@ hardware real.
   `COMPATIBILIDADE_CAMERAS.md`).
 - ~~Fluxo de cadastro de câmera por loja~~ — aba "Câmeras" no dashboard,
   `camera_id` real enviado e validado pelo backend.
+- ~~Assistente de configuração gráfico~~ — `setup_wizard.py`, ver seção
+  "Instalando numa loja" acima. Testado de ponta a ponta contra
+  produção (chave real, câmera real, e os dois caminhos de erro).

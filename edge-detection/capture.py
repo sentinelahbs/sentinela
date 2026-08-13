@@ -125,3 +125,27 @@ class RollingCapture:
     def close(self):
         if self._cap is not None:
             self._cap.release()
+
+
+def test_source(source: str, timeout_seconds: float = 8.0) -> "tuple[bool, str]":
+    """Testa se dá pra abrir `source` (RTSP do DVR ou índice de webcam) e
+    ler pelo menos um frame de verdade — usado pelo assistente de
+    configuração (setup_wizard.py) pra dar feedback imediato se os dados
+    do DVR estão certos, sem precisar montar a pipeline de detecção
+    inteira só pra isso. Retorna (sucesso, mensagem)."""
+    capture = RollingCapture(source=source, fps_target=5, pre_event_seconds=1)
+    try:
+        capture.open()
+    except RuntimeError as exc:
+        return False, str(exc)
+
+    try:
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            ok, frame = capture._cap.read()
+            if ok and frame is not None:
+                return True, "Conectado com sucesso"
+            time.sleep(0.2)
+        return False, "Conectou, mas não recebeu nenhuma imagem a tempo — confira usuário/senha/canal"
+    finally:
+        capture.close()

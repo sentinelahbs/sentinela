@@ -68,9 +68,59 @@ class StoreConfig:
                                     # captura para economizar CPU/GPU da box
 
 
-# Exemplo de configuração — na prática isso viria de um arquivo YAML/JSON
-# carregado por loja, não hardcoded. Os 3 dados sensíveis (chave da loja,
-# id da loja, endereço do backend) vêm de variável de ambiente — nunca
+# Zona padrão usada tanto pelo EXAMPLE_STORE quanto pelas câmeras vindas
+# do assistente de configuração (que não pede ajuste fino de zona/
+# threshold — isso fica pra calibração manual depois, ver
+# edge_detection_calibration na memória do projeto).
+_DEFAULT_ZONE = [(0.1, 0.35), (0.9, 0.35), (0.9, 0.98), (0.1, 0.98)]
+_DEFAULT_HAND_STILL_FRAMES = 6
+_DEFAULT_MIN_CONFIDENCE = 0.55
+
+BOX_CONFIG_PATH = os.environ.get("BOX_CONFIG_PATH", "./box_config.json")
+
+
+def load_box_config(path: str = BOX_CONFIG_PATH) -> "StoreConfig | None":
+    """Carrega a configuração gerada pelo assistente (ver
+    setup_wizard.py) — se o arquivo existir, tem prioridade sobre
+    EXAMPLE_STORE/variáveis de ambiente abaixo, que ficam só como
+    fallback pra desenvolvimento/teste local sem o assistente."""
+    if not os.path.exists(path):
+        return None
+
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    dvr = data["dvr"]
+    cameras = [
+        CameraConfig(
+            camera_id=cam["camera_id"],
+            label=cam["label"],
+            source=build_intelbras_rtsp_url(
+                host=dvr["host"],
+                username=dvr["username"],
+                password=dvr["password"],
+                channel=cam["channel"],
+                port=dvr.get("port", 554),
+                main_stream=not dvr.get("sub_stream", True),
+            ),
+            zone_of_interest=_DEFAULT_ZONE,
+            hand_still_frames_threshold=_DEFAULT_HAND_STILL_FRAMES,
+            min_confidence_to_alert=_DEFAULT_MIN_CONFIDENCE,
+        )
+        for cam in data["cameras"]
+    ]
+    return StoreConfig(
+        store_id=data["store_id"],
+        api_base_url=data.get("api_base_url", "https://api.vigialoja.com.br"),
+        api_key=data["api_key"],
+        cameras=cameras,
+    )
+
+
+# Exemplo de configuração — usado só quando box_config.json (gerado pelo
+# assistente) não existe, pra desenvolvimento/teste local continuar
+# funcionando por variável de ambiente como sempre funcionou. Os 3 dados
+# sensíveis (chave da loja, id da loja, endereço do backend) nunca ficam
 # hardcoded aqui, pra não ir parar no repositório por engano.
 EXAMPLE_STORE = StoreConfig(
     store_id=os.environ.get("STORE_ID", "s1"),
@@ -114,3 +164,7 @@ EXAMPLE_STORE = StoreConfig(
         ),
     ],
 )
+
+# Isso é o que main.py de fato usa: box_config.json (assistente) se
+# existir, senão a configuração de exemplo por variável de ambiente.
+ACTIVE_STORE = load_box_config() or EXAMPLE_STORE

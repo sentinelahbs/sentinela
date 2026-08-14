@@ -171,20 +171,23 @@ def run_camera(store_cfg, camera_cfg):
 
 
 if __name__ == "__main__":
-    # Heartbeat é por LOJA, não por câmera — se no futuro isso virar um
-    # processo por câmera (ver comentário abaixo), só o primeiro processo
-    # da loja deveria iniciar o sender, pra não mandar heartbeats
-    # duplicados. Por agora, MVP de uma câmera só, sem esse problema.
-    HeartbeatSender(
-        api_base_url=ACTIVE_STORE.api_base_url,
-        api_key=ACTIVE_STORE.api_key,
-        store_id=ACTIVE_STORE.store_id,
-    ).start()
+    # Heartbeat é por LOJA, não por câmera. Quando supervisor.py sobe
+    # este processo (um por câmera), ele mesmo já cuida do heartbeat uma
+    # vez só pra loja inteira — sinalizado por VIGIA_SUPERVISED, pra não
+    # mandar N heartbeats duplicados. Rodando main.py sozinho pra teste
+    # manual (sem supervisor), continua iniciando o próprio heartbeat
+    # como sempre fez.
+    if not os.environ.get("VIGIA_SUPERVISED"):
+        HeartbeatSender(
+            api_base_url=ACTIVE_STORE.api_base_url,
+            api_key=ACTIVE_STORE.api_key,
+            store_id=ACTIVE_STORE.store_id,
+        ).start()
 
     # ACTIVE_STORE já pode ter várias câmeras (ver box_config.json/
-    # setup_wizard.py) — mas cada PROCESSO ainda roda uma só (falta o
-    # supervisor multi-câmera). CAMERA_INDEX escolhe qual, pra testar
-    # manualmente mais de uma câmera do mesmo box_config.json ao mesmo
-    # tempo (um processo por índice), até o supervisor existir de verdade.
+    # setup_wizard.py). CAMERA_INDEX escolhe qual esse processo em
+    # particular representa — supervisor.py seta isso automaticamente ao
+    # subir um processo por câmera; pra teste manual sem supervisor,
+    # continua podendo ser setado à mão (padrão 0).
     camera_index = int(os.environ.get("CAMERA_INDEX", "0"))
     run_camera(ACTIVE_STORE, ACTIVE_STORE.cameras[camera_index])

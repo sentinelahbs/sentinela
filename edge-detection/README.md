@@ -21,6 +21,7 @@ alert_client.py     → envia o evento pro backend (mesmo que alimenta o dashboa
 main.py             → orquestra tudo, um processo por câmera
 config.py           → configuração por loja e por câmera (zona de interesse, thresholds)
 setup_wizard.py      → assistente gráfico de instalação (ver seção abaixo)
+supervisor.py         → sobe um processo por câmera e reinicia se algum cair (ver seção abaixo)
 ```
 
 ## Backend de detecção de pessoa: YOLOv8 vs YOLOX
@@ -148,16 +149,56 @@ nenhuma variável de ambiente. Rodando sem o assistente (`CAMERA_SOURCE`,
 `STORE_*` etc. por env var, como antes), continua funcionando igual —
 o assistente é aditivo, não obrigatório.
 
-Como ainda não existe o supervisor multi-câmera (ver "O que falta"
-abaixo), cada processo roda uma câmera só — `CAMERA_INDEX` (padrão `0`)
+Cada processo `main.py` roda uma câmera só — `CAMERA_INDEX` (padrão `0`)
 escolhe qual câmera de `box_config.json` esse processo em particular
-representa, pra testar manualmente mais de uma câmera do mesmo arquivo
-ao mesmo tempo (um processo por índice):
+representa. Pra rodar manualmente mais de uma câmera ao mesmo tempo sem
+o supervisor (ex: depurando uma câmera específica), um processo por
+índice:
 
 ```bash
 $env:CAMERA_INDEX = "1"   # roda a segunda câmera do box_config.json
 python main.py
 ```
+
+Em uso normal, é o `supervisor.py` (ver seção abaixo) quem faz isso
+automaticamente pra todas as câmeras da loja.
+
+## Rodando todas as câmeras da loja (supervisor.py)
+
+```bash
+python supervisor.py
+```
+
+Sobe um processo `main.py` por câmera de `ACTIVE_STORE` (uma pra cada
+entrada de `box_config.json`), monitora cada um, e reinicia
+automaticamente com backoff exponencial (1s, 2s, 4s... até 60s) se
+algum cair — sem desistir permanentemente de nenhuma câmera, mesmo que
+ela fique caindo repetidamente (mesma filosofia da reconexão de stream
+em `capture.py`). Se uma câmera ficar 5 minutos rodando sem cair, o
+backoff dela reseta — não trata uma queda isolada depois de horas
+saudáveis como se fizesse parte de uma sequência de falhas.
+
+O heartbeat da loja (ping periódico pro backend saber que a box está
+online) roda **uma vez só aqui**, nunca dentro de cada processo de
+câmera — os processos filhos sabem que estão sob supervisão pela
+variável `VIGIA_SUPERVISED` (setada automaticamente) e não sobem o
+próprio heartbeat, senão a loja mandaria um ping duplicado por câmera.
+
+Cada câmera grava seu próprio log em `./logs/camera_N.log` (não
+versionado, ver `.gitignore`) — inclui o traceback real se o processo
+cair, útil pra descobrir qual câmera especificamente está com problema
+sem precisar abrir N janelas de terminal.
+
+Testado rodando de verdade por 90s com 2 câmeras apontando pra um DVR
+inexistente: as duas subiram juntas, travaram (~36s até o FFmpeg
+desistir da conexão RTSP — comportamento do próprio FFmpeg, não do
+supervisor), caíram, foram reiniciadas com backoff crescente (2s → 4s),
+e o heartbeat central nunca duplicou. Encerramento gracioso
+(`terminate()`) testado separadamente com uma câmera de verdade
+(webcam) rodando — confirma que o processo filho encerra e não fica
+órfão. O caminho de Ctrl+C→`KeyboardInterrupt` em si (que só chama esse
+mesmo `terminate()` pra cada câmera) não foi testado com um Ctrl+C real
+de terminal, só a lógica de encerramento que ele aciona.
 
 ## Compatibilidade com CFTV/DVR (Intelbras)
 
@@ -172,17 +213,11 @@ hardware real.
 - **Testar contra um DVR/NVR Intelbras real** — tudo em
   `COMPATIBILIDADE_CAMERAS.md` foi implementado e testado com mocks, mas
   nunca rodou contra o equipamento de verdade.
-- Fila local (ex: SQLite) para reenviar alertas se a internet cair — hoje
-  uma falha de rede na hora de enviar o alerta só loga o erro, o clipe
-  fica local mas não há retry automático depois.
-- **Processo supervisor multi-câmera** — hoje cada processo roda uma
-  câmera só (`CAMERA_INDEX`, ver seção do assistente acima); falta algo
-  que suba um processo por câmera automaticamente e reinicie se um
-  cair, pra não precisar abrir N janelas de terminal na mão.
 - Empacotamento pra instalação sem Python (Python embarcável + serviço
   do Windows via NSSM, ver decisão registrada na conversa do projeto) —
-  o assistente hoje ainda precisa do ambiente Python já configurado
-  pra rodar.
+  o assistente e o supervisor hoje ainda precisam do ambiente Python já
+  configurado pra rodar. NSSM entra aqui pra rodar `supervisor.py` como
+  serviço do Windows (inicia sozinho com o PC, sem terminal aberto).
 - Fila local (ex: SQLite) para reenviar alertas se a internet cair — hoje
   uma falha de rede na hora de enviar o alerta só loga o erro, o clipe
   fica local mas não há retry automático depois.
@@ -202,3 +237,6 @@ hardware real.
 - ~~Assistente de configuração gráfico~~ — `setup_wizard.py`, ver seção
   "Instalando numa loja" acima. Testado de ponta a ponta contra
   produção (chave real, câmera real, e os dois caminhos de erro).
+- ~~Processo supervisor multi-câmera~~ — `supervisor.py`, ver seção
+  acima. Testado rodando de verdade (crash + reinício com backoff,
+  heartbeat centralizado, encerramento gracioso sem processo órfão).

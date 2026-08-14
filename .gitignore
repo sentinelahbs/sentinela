@@ -28,6 +28,9 @@ edge-detection/clips/
 # Base local do correlator (ver correlator.py) — estado de runtime da box, não código
 edge-detection/correlator.db*
 
+# Logs por câmera do supervisor (ver supervisor.py) — saída de runtime, não código
+edge-detection/logs/
+
 # Node / Vite
 dashboard/node_modules/
 dashboard/dist/

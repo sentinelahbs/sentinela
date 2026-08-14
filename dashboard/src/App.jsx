@@ -52,6 +52,9 @@ const COLORS = {
   amber: "#F2A93B",
   teal: "#34D399",
   red: "#F2555A",
+  // Verde do ícone da logo (olho) — dedicado, não reaproveita `teal`
+  // (que já é usado em vários outros lugares da UI, tipo status "online").
+  brandGreen: "#54B833",
 };
 
 // Sombra compartilhada — dá profundidade a painéis, cartões e modais sem
@@ -140,9 +143,9 @@ function Field({ label, type, ...props }) {
 function Logo({ size = 20, fontSize = 16 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <ShieldAlert size={size} color={COLORS.amber} />
+      <img src="/eye-logo.png" alt="" width={size} height={size} style={{ display: "block", borderRadius: "50%" }} />
       <span style={{ fontWeight: 700, fontSize }}>
-        vig<span style={{ color: COLORS.teal }}>IA</span>
+        vig<span style={{ color: COLORS.brandGreen }}>IA</span>
       </span>
     </div>
   );

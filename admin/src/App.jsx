@@ -34,6 +34,9 @@ const COLORS = {
   amber: "#F2A93B",
   teal: "#34D399",
   red: "#F2555A",
+  // Verde do ícone da logo (olho) — dedicado, não reaproveita `teal`
+  // (usado em outros lugares da UI).
+  brandGreen: "#54B833",
 };
 
 const globalFonts = `
@@ -183,8 +186,10 @@ function Field({ label, type, ...props }) {
 function Logo({ size = 20, fontSize = 16 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-      <ShieldAlert size={size} color={COLORS.amber} />
-      <span style={{ fontWeight: 700, fontSize }}>VigIA</span>
+      <img src="/eye-logo.png" alt="" width={size} height={size} style={{ display: "block", borderRadius: "50%" }} />
+      <span style={{ fontWeight: 700, fontSize }}>
+        vig<span style={{ color: COLORS.brandGreen }}>IA</span>
+      </span>
     </div>
   );
 }

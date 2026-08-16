@@ -15,6 +15,40 @@ from tenant_context import set_company_context, set_store_lookup
 router = APIRouter(prefix="/v1", tags=["alerts"])
 clip_storage = ClipStorage()
 
+# Limites de upload do clipe/thumbnail enviados pela box. Um clipe típico
+# (5s de pré-evento + 10s de pós-evento, ver `pre_event_seconds` /
+# `post_event_seconds` em edge-detection/config.py) gravado em H.264 fica
+# na casa de poucos MB — 100 MB dá folga generosa até pra câmeras em
+# resolução alta ou sem o codec H.264 disponível (fallback mp4v, maior).
+# A thumbnail é um único frame JPEG, 10 MB já é folga enorme pra isso.
+MAX_CLIP_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_THUMBNAIL_UPLOAD_BYTES = 10 * 1024 * 1024
+_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+
+
+def _read_upload_limited(upload: UploadFile, max_bytes: int, field_name: str) -> bytes:
+    """Lê um UploadFile em blocos, cortando assim que o total ultrapassa
+    max_bytes. Não dá pra confiar no Content-Length declarado pelo cliente
+    (quem chama esse endpoint é uma box autenticada só por API key, não um
+    usuário logado) — por isso o corte é feito durante a leitura, e nunca
+    é bufferizado mais que max_bytes (+ um bloco) na memória do processo,
+    não importa o que o cliente diga que vai mandar."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = upload.file.read(_UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"Arquivo '{field_name}' excede o tamanho máximo permitido "
+                f"({max_bytes // (1024 * 1024)} MB)",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 # --- Recebido da BOX de detecção instalada na loja -------------------------
 
@@ -52,12 +86,12 @@ def receive_alert(
             if camera is None:
                 camera_id = None
 
-    clip_bytes = clip.file.read()
+    clip_bytes = _read_upload_limited(clip, MAX_CLIP_UPLOAD_BYTES, "clip")
     clip_url = clip_storage.upload_clip(store_id, clip_bytes, clip.content_type)
 
     thumbnail_url = None
     if thumbnail is not None:
-        thumb_bytes = thumbnail.file.read()
+        thumb_bytes = _read_upload_limited(thumbnail, MAX_THUMBNAIL_UPLOAD_BYTES, "thumbnail")
         thumbnail_url = clip_storage.upload_thumbnail(store_id, thumb_bytes)
 
     alert = Alert(

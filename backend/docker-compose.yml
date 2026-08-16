@@ -42,7 +42,11 @@ services:
       # (ou crie a role manualmente num banco que queira preservar).
       DATABASE_URL: postgresql://vigia_app:vigia_app_local_pw@db:5432/lossprevention
     ports:
-      - "8000:8000"
+      # Só no loopback do host: um proxy reverso no mesmo host/rede
+      # Docker ainda alcança a API, mas nada fora do host consegue --
+      # isso é exigido pela lógica de confiança no X-Forwarded-For em
+      # app/rate_limit.py (senão qualquer um de fora forjaria o header).
+      - "127.0.0.1:8000:8000"
 
 volumes:
   db_data:

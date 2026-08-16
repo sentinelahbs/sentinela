@@ -44,7 +44,20 @@ O `Dockerfile` e o `docker-compose.yml` já estão prontos. Para publicar:
   deploy direto de um Dockerfile com poucos cliques, e têm certificado
   HTTPS automático
 - **Opção mais robusta/self-managed**: AWS ECS/Fargate ou um VPS com
-  Docker + um proxy reverso (Caddy/Traefik) na frente pro HTTPS
+  Docker + um proxy reverso (Caddy/Traefik) na frente pro HTTPS. Nesse
+  caso, o proxy reverso precisa rodar no mesmo host/rede Docker que o
+  container da API, e a porta da API nunca pode ficar exposta numa
+  interface pública -- é exatamente o que o binding em `127.0.0.1` no
+  `docker-compose.yml` garante. Sem isso, qualquer um de fora consegue
+  falar direto com o container e forjar o `X-Forwarded-For` que
+  `app/rate_limit.py` usa pra identificar o IP real do cliente,
+  contornando o rate limiting de login/signup/reset de senha/checkout.
+  No caminho ECS/Fargate (que não usa esse `docker-compose.yml` e tem
+  sua própria configuração de rede), o equivalente é um Security Group
+  que só permite tráfego de entrada pra API vindo do Application Load
+  Balancer, nunca de `0.0.0.0/0` -- isso é configuração de
+  infraestrutura fora do que os arquivos desse repo controlam, então
+  fica documentado aqui como requisito.
 
 Passos, independente do provedor escolhido:
 
@@ -126,3 +139,7 @@ não numa nuvem:
       domínio próprio
 - [ ] Backup automático do Postgres confirmado ativo no provedor
       escolhido (Railway)
+- [ ] Porta da API não está acessível diretamente de fora do host (só
+      através do proxy reverso/load balancer) -- confirma o binding em
+      `127.0.0.1` no `docker-compose.yml` (VPS) ou o Security Group
+      restrito ao ALB (ECS/Fargate)

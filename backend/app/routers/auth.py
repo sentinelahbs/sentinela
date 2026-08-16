@@ -89,6 +89,9 @@ def signup(request: Request, response: Response, payload: SignupIn, db: Session 
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Já existe uma conta com este email")
 
+    if len(payload.password) < 8:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A senha precisa ter ao menos 8 caracteres")
+
     if prepaid is not None:
         # O checkout cobrou só a primeira mensalidade avulsa (Pix não
         # suporta RECURRENT no produto de Checkout do Asaas — só cartão,

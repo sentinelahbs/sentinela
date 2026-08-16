@@ -24,8 +24,30 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 # ALLOWED_ORIGINS: lista separada por vírgula (ex: o domínio do dashboard
-# web publicado). "*" só é aceitável em desenvolvimento local.
-allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+# web publicado). Nunca pode resolver para "*": allow_credentials=True
+# abaixo faz o Starlette refletir o Origin de qualquer requisição como
+# Access-Control-Allow-Origin sempre que a lista de origens permitidas é
+# um wildcard — e como o cookie de sessão usa SameSite=None por padrão
+# (ver COOKIE_SAMESITE em auth.py), o CORS é a única barreira restante
+# contra um site malicioso ler respostas autenticadas via fetch(). Por
+# isso falhamos no startup em vez de cair de volta pra um "*" inseguro,
+# no mesmo espírito do guard de superuser nas migrações de RLS.
+_allowed_origins_raw = os.environ.get("ALLOWED_ORIGINS", "")
+allowed_origins = [
+    origin.strip()
+    for origin in _allowed_origins_raw.split(",")
+    if origin.strip() and origin.strip() != "*"
+]
+
+if not allowed_origins:
+    raise RuntimeError(
+        'ALLOWED_ORIGINS precisa ser uma lista explicita de origens '
+        '(ex: "https://app.suaempresa.com.br"), sem "*" -- com '
+        'allow_credentials=True, um ALLOWED_ORIGINS vazio ou "*" faz o '
+        'CORSMiddleware refletir o Origin de qualquer site, permitindo '
+        'roubo da sessao autenticada entre sites. Defina ALLOWED_ORIGINS '
+        'antes de subir o servico.'
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,8 +57,8 @@ app.add_middleware(
     # Necessário pro cookie HttpOnly de sessão viajar nas respostas/
     # requisições (fetch com credentials: "include") — sem isso o
     # navegador ignora tanto o Set-Cookie quanto o cookie na volta.
-    # Exige que allow_origins seja uma lista explícita (nunca "*"); já é
-    # o caso aqui, tanto local quanto em produção.
+    # Exige que allow_origins seja uma lista explícita (nunca "*"); o
+    # guard acima garante isso, tanto local quanto em produção.
     allow_credentials=True,
 )
 

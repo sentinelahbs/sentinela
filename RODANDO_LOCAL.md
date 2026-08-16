@@ -144,8 +144,10 @@ comando — é só ir aprovando.
   5432 (Postgres) ou 8000 (API) no seu PC. Feche o que estiver usando,
   ou troque a porta no `docker-compose.yml`
 - **Dashboard carrega mas dá erro de CORS** — confirme que o backend
-  está com `ALLOWED_ORIGINS` incluindo `http://localhost:5173`
-  (ou deixe `*` só pra este teste local)
+  está com `ALLOWED_ORIGINS` incluindo `http://localhost:5173`. O
+  backend recusa subir com `ALLOWED_ORIGINS` vazio ou `*` (proteção
+  contra roubo de sessão entre sites), então é preciso listar a origem
+  explicitamente mesmo em teste local
 - **`npm create vite` pede confirmação e trava num script não
   interativo** — responda as perguntas manualmente na primeira vez em
   vez de automatizar

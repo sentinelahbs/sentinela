@@ -41,17 +41,23 @@ const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.host
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
 
 const COLORS = {
-  bg: "#12141A",
-  panel: "#191C24",
-  panelAlt: "#20242E",
-  border: "#2A2E38",
-  borderSoft: "#22262F",
-  text: "#ECEDEF",
-  textMuted: "#888EA0",
-  textFaint: "#5B6070",
-  amber: "#F2A93B",
-  teal: "#34D399",
-  red: "#F2555A",
+  bg: "#0A0F1C",
+  panel: "#121A2E",
+  panelAlt: "#1A2440",
+  border: "#232F4E",
+  borderSoft: "#1C2540",
+  text: "#E7ECF7",
+  textMuted: "#7C8BAD",
+  textFaint: "#4C5A7D",
+  amber: "#F5A623",
+  teal: "#3DD68C",
+  red: "#E8483C",
+  // Versões "dim" — usadas em glow/borda de destaque e nas barras não
+  // destacadas dos mini-gráficos (ver Stat) — tom escurecido da cor
+  // correspondente, não uma cor nova sem relação.
+  amberDim: "#7A5518",
+  redDim: "#5A211C",
+  tealDim: "#1C4A38",
   // Verde do ícone da logo (olho) — dedicado, não reaproveita `teal`
   // (que já é usado em vários outros lugares da UI, tipo status "online").
   brandGreen: "#54B833",
@@ -63,7 +69,7 @@ const SHADOW = "0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -8px rgba(0,0,0,0.55)";
 const SHADOW_SOFT = "0 1px 2px rgba(0,0,0,0.25), 0 4px 14px -6px rgba(0,0,0,0.4)";
 
 const globalFonts = `
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap');
   * { box-sizing: border-box; }
   .lp-row { transition: background .12s ease, border-color .12s ease; }
   .lp-row:hover { background: ${COLORS.panelAlt} !important; }
@@ -84,8 +90,14 @@ const globalFonts = `
   .lp-overlay-in { animation: lp-overlay-in .15s ease both; }
   input:focus, textarea:focus { outline: none; border-color: ${COLORS.amber}; }
   :focus-visible { outline: 2px solid ${COLORS.amber}; outline-offset: 2px; }
+  /* varredura do radar (estado vazio da lista de eventos) e pulso do
+     chip "monitorando ao vivo" */
+  @keyframes lp-sweep { to { transform: rotate(360deg); } }
+  @keyframes lp-blip { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+  .lp-sweep { animation: lp-sweep 3.6s linear infinite; }
+  .lp-blip { animation: lp-blip 1.8s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) {
-    .lp-fade-up, .lp-modal-in, .lp-overlay-in, .lp-spin { animation: none; }
+    .lp-fade-up, .lp-modal-in, .lp-overlay-in, .lp-spin, .lp-sweep, .lp-blip { animation: none; }
   }
 `;
 
@@ -715,14 +727,75 @@ function Thumb({ status, thumbnailUrl }) {
   );
 }
 
-function Stat({ icon, label, value, color }) {
+// variant escolhe a cor semântica do card (âmbar = precisa de atenção,
+// vermelho = confirmado, verde = ok) — "primary" é a única que ganha
+// destaque visual maior (glow, valor maior), reservado pro que é mais
+// acionável (Pendentes). bars é opcional: array de alturas 0-100 (últimos
+// N dias), a última sempre em destaque (dia de hoje).
+function Stat({ icon, label, value, foot, variant, bars }) {
+  const isPrimary = variant === "primary";
+  const valueColor =
+    variant === "primary" ? COLORS.amber : variant === "danger" ? COLORS.red : variant === "ok" ? COLORS.teal : COLORS.text;
+  const barColor =
+    variant === "primary" ? COLORS.amber : variant === "danger" ? COLORS.red : variant === "ok" ? COLORS.teal : COLORS.textFaint;
+  const barColorDim =
+    variant === "primary" ? COLORS.amberDim : variant === "danger" ? COLORS.redDim : variant === "ok" ? COLORS.tealDim : COLORS.borderSoft;
+
   return (
-    <div style={{ textAlign: "right", padding: "8px 14px", borderRadius: 9, background: COLORS.panelAlt, border: `1px solid ${COLORS.borderSoft}`, minWidth: 96 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, fontSize: 10.5, color: COLORS.textFaint, marginBottom: 4, letterSpacing: "0.02em" }}>
+    <div
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        background: isPrimary ? `linear-gradient(135deg, rgba(245,166,35,0.09), ${COLORS.panel} 55%)` : COLORS.panel,
+        border: `1px solid ${isPrimary ? COLORS.amberDim : COLORS.border}`,
+        borderRadius: 10,
+        padding: isPrimary ? "18px 20px" : "16px 18px",
+      }}
+    >
+      {isPrimary && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute", top: -40, right: -40, width: 120, height: 120, borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(245,166,35,0.16), transparent 70%)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
+      <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.08em", color: COLORS.textMuted, marginBottom: 10 }}>
         {icon}
         {label}
       </div>
-      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div
+        style={{
+          position: "relative",
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: isPrimary ? 42 : variant === "ok" ? 30 : 34,
+          fontWeight: 700,
+          lineHeight: 1,
+          color: valueColor,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {value}
+      </div>
+      {bars && bars.length > 0 && (
+        <div style={{ position: "relative", display: "flex", alignItems: "flex-end", gap: 3, height: 22, marginTop: 12 }}>
+          {bars.map((h, i) => (
+            <i
+              key={i}
+              style={{
+                flex: 1,
+                borderRadius: "2px 2px 0 0",
+                background: i === bars.length - 1 ? barColor : barColorDim,
+                opacity: i === bars.length - 1 ? 1 : 0.55,
+                height: `${Math.max(h, 2)}%`,
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {foot && <div style={{ position: "relative", fontSize: 12, color: COLORS.textFaint, marginTop: 8 }}>{foot}</div>}
     </div>
   );
 }
@@ -1451,6 +1524,47 @@ function timeAgo(isoString) {
   return `há ${Math.floor(hours / 24)}d`;
 }
 
+// Janelas de dia (meia-noite a meia-noite, fuso local) dos últimos `days`
+// dias, do mais antigo pro mais recente (hoje é sempre o último).
+function recentDayWindows(days) {
+  return Array.from({ length: days }, (_, i) => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - (days - 1 - i));
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return [start, end];
+  });
+}
+
+// Mini-gráfico de tendência dos cards de estatística (últimos `days`
+// dias). Conta alertas por dia de CRIAÇÃO com o status atual passado em
+// `status` — leitura aproximada (não é "quando o status mudou", é
+// "quando o alerta nasceu"), mas é o que dá pra calcular sem endpoint
+// novo, e é suficiente pra uma tendência decorativa. Alturas normalizadas
+// 0-100 pelo maior dia do período (dia mais recente sempre em destaque
+// visual, ver Stat).
+function dailyTrendBars(alerts, status, days = 10) {
+  const counts = recentDayWindows(days).map(([start, end]) =>
+    alerts.filter((a) => a.status === status && new Date(a.created_at) >= start && new Date(a.created_at) < end).length
+  );
+  const max = Math.max(...counts, 1);
+  return counts.map((c) => Math.round((c / max) * 100));
+}
+
+// Igual acima, mas pro card de Falso positivo — o valor do card já é uma
+// porcentagem (dismissed / total do período inteiro), então a barra
+// também é uma porcentagem (dismissed / total DAQUELE dia), não uma
+// contagem normalizada.
+function falsePositiveTrendBars(alerts, days = 10) {
+  return recentDayWindows(days).map(([start, end]) => {
+    const dayAlerts = alerts.filter((a) => new Date(a.created_at) >= start && new Date(a.created_at) < end);
+    if (dayAlerts.length === 0) return 0;
+    const dismissed = dayAlerts.filter((a) => a.status === "dismissed").length;
+    return Math.round((dismissed / dayAlerts.length) * 100);
+  });
+}
+
 function StatusPanel({ stores }) {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
@@ -1884,12 +1998,38 @@ function Dashboard({ onLogout }) {
   const pendingCount = alerts.filter((a) => a.status === "pending").length;
   const confirmedCount = alerts.filter((a) => a.status === "confirmed").length;
   const falsePositiveRate = alerts.length ? Math.round((alerts.filter((a) => a.status === "dismissed").length / alerts.length) * 100) : 0;
+  const pendingBars = dailyTrendBars(alerts, "pending");
+  const confirmedBars = dailyTrendBars(alerts, "confirmed");
+  const falsePositiveBars = falsePositiveTrendBars(alerts);
   const storeName = selectedStore === "all" ? "Todas as lojas" : stores.find((s) => s.id === selectedStore)?.name;
 
   const showEmptyState = !loadingStores && stores.length === 0;
 
+  // Atualização mais recente entre todas as lojas — usado no bloco
+  // "Frota" da sidebar, representa o pulso mais atual da frota como um todo.
+  const latestSeenAt = stores.reduce((latest, s) => {
+    if (!s.last_seen_at) return latest;
+    if (!latest || new Date(s.last_seen_at) > new Date(latest)) return s.last_seen_at;
+    return latest;
+  }, null);
+  const onlineStoreCount = stores.filter((s) => s.online).length;
+
   return (
-    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", background: COLORS.bg, color: COLORS.text, minHeight: "100dvh", display: "flex", overflow: "hidden" }}>
+    <div
+      style={{
+        fontFamily: "'Manrope', sans-serif",
+        background: COLORS.bg,
+        // Grade sutil lembrando tela de monitor — só nesse wrapper (área
+        // logada); a tela de login (AuthShell) não usa isso.
+        backgroundImage:
+          "linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)",
+        backgroundSize: "28px 28px",
+        color: COLORS.text,
+        minHeight: "100dvh",
+        display: "flex",
+        overflow: "hidden",
+      }}
+    >
       <style>{globalFonts}</style>
 
       {isMobile && showMobileNav && (
@@ -1910,6 +2050,36 @@ function Dashboard({ onLogout }) {
         <div style={{ padding: "0 6px", marginBottom: 28 }}>
           <Logo size={26} fontSize={19} />
         </div>
+
+        {stores.length > 0 && (
+          <div style={{ background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 26 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+              <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.09em", color: COLORS.textMuted }}>Frota</span>
+              <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint }}>{timeAgo(latestSeenAt)}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {stores.map((store) => {
+                const pendingForStore = alerts.filter((a) => a.store_id === store.id && a.status === "pending").length;
+                const dotColor = pendingForStore > 0 ? COLORS.amber : store.online ? COLORS.teal : COLORS.textFaint;
+                const statusText = pendingForStore > 0
+                  ? `${pendingForStore} pendente${pendingForStore > 1 ? "s" : ""}`
+                  : store.online ? "ok" : "offline";
+                return (
+                  <div key={store.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: COLORS.textMuted, minWidth: 0 }}>
+                    <span
+                      style={{
+                        width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: dotColor,
+                        boxShadow: pendingForStore > 0 || store.online ? `0 0 6px 0 ${dotColor}99` : "none",
+                      }}
+                    />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name}</span>
+                    <span style={{ marginLeft: "auto", flexShrink: 0, color: COLORS.text, fontWeight: 600 }}>{statusText}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint, letterSpacing: "0.08em", textTransform: "uppercase", padding: "0 6px", marginBottom: 8 }}>
           Lojas
@@ -2021,24 +2191,36 @@ function Dashboard({ onLogout }) {
 
         {activeView === "alerts" && (
           <>
-            <div style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, padding: isMobile ? "14px 16px" : "16px 22px", borderBottom: `1px solid ${COLORS.border}` }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>{storeName}</div>
-                <div style={{ fontSize: 12, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", marginTop: 2 }}>
-                  {loadingAlerts ? "Atualizando…" : `${alerts.length} evento(s)`}
+            <div style={{ padding: isMobile ? "14px 16px 0" : "20px 22px 0" }}>
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.01em", marginBottom: 4 }}>{storeName}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13, color: COLORS.textMuted }}>
+                  <span
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: COLORS.teal,
+                      background: "rgba(61,214,140,0.08)", border: `1px solid ${COLORS.tealDim}`, padding: "3px 9px", borderRadius: 999,
+                    }}
+                  >
+                    <span className="lp-blip" style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.teal, display: "inline-block" }} />
+                    monitorando ao vivo
+                  </span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
+                    · {loadingAlerts ? "Atualizando…" : `${alerts.length} evento(s)`} · {onlineStoreCount} loja{onlineStoreCount === 1 ? "" : "s"} online
+                  </span>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Stat icon={<Bell size={14} color={COLORS.amber} />} label="Pendentes" value={pendingCount} color={COLORS.amber} />
-                <Stat icon={<ShieldAlert size={14} color={COLORS.red} />} label="Confirmados" value={confirmedCount} color={COLORS.red} />
+
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr 1fr", gap: 14, marginBottom: 22 }}>
+                <Stat icon={<Bell size={14} color={COLORS.amber} />} label="Pendentes" value={pendingCount} variant="primary" bars={pendingBars} foot="aguardando sua confirmação" />
+                <Stat icon={<ShieldAlert size={14} color={COLORS.red} />} label="Confirmados" value={confirmedCount} variant="danger" bars={confirmedBars} foot="no total" />
                 {!isMobile && (
-                  <Stat icon={<TrendingDown size={14} color={COLORS.teal} />} label="Taxa de falso positivo" value={`${falsePositiveRate}%`} color={COLORS.teal} />
+                  <Stat icon={<TrendingDown size={14} color={COLORS.teal} />} label="Taxa de falso positivo" value={`${falsePositiveRate}%`} variant="ok" bars={falsePositiveBars} foot="no total" />
                 )}
               </div>
             </div>
 
             {error && (
-              <div style={{ padding: "10px 22px", background: "rgba(242,85,90,0.1)", color: COLORS.red, fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ padding: "10px 22px", background: "rgba(232,72,60,0.1)", color: COLORS.red, fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
                 <AlertTriangle size={14} />
                 {error}
               </div>
@@ -2071,9 +2253,35 @@ function Dashboard({ onLogout }) {
               }
             >
               {!loadingAlerts && alerts.length === 0 && (
-                <div className="lp-fade-up" style={{ padding: "40px 24px", color: COLORS.textFaint, fontSize: 13, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                  <ShieldAlert size={24} color={COLORS.textFaint} style={{ opacity: 0.5 }} />
-                  <span>Nenhum alerta por aqui — tudo tranquilo.</span>
+                <div className="lp-fade-up" style={{ padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+                  <div
+                    style={{
+                      width: 108, height: 108, borderRadius: "50%", position: "relative", overflow: "hidden",
+                      background:
+                        "repeating-radial-gradient(circle, transparent 0, transparent 17px, rgba(61,214,140,0.09) 18px), radial-gradient(circle, rgba(61,214,140,0.06), transparent 70%)",
+                      border: `1px solid ${COLORS.tealDim}`,
+                      marginBottom: 18,
+                    }}
+                  >
+                    <div
+                      aria-hidden="true"
+                      className="lp-sweep"
+                      style={{ position: "absolute", inset: 0, background: "conic-gradient(from 0deg, rgba(61,214,140,0.55), transparent 45deg)" }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.text, marginBottom: 6 }}>Tudo tranquilo</div>
+                  <p style={{ fontSize: 13, color: COLORS.textMuted, margin: "0 0 14px", maxWidth: 220, lineHeight: 1.5 }}>
+                    Nenhum alerta por aqui. Suas câmeras seguem ativas e observando.
+                  </p>
+                  {/* Decorativo — não é uma métrica real (não há dado de atividade
+                      por hora exposto pela API hoje), só reforça a sensação de
+                      "sistema vivo" enquanto não há eventos pra mostrar. */}
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 28, marginBottom: 6 }}>
+                    {[6, 10, 4, 14, 8, 5, 9, 3, 11, 6, 4, 7].map((h, i) => (
+                      <i key={i} style={{ width: 4, background: COLORS.tealDim, borderRadius: "2px 2px 0 0", height: h }} />
+                    ))}
+                  </div>
+                  <span style={{ fontSize: 11, color: COLORS.textFaint }}>sinal de monitoramento</span>
                 </div>
               )}
               {alerts.map((alert) => {

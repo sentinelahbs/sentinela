@@ -2,7 +2,7 @@ fastapi==0.130.0
 starlette==0.52.1
 uvicorn[standard]==0.32.1
 sqlalchemy==2.0.36
-psycopg2-binary==2.9.10
+psycopg2-binary==2.9.12
 pydantic[email]==2.9.2
 pyjwt==2.13.0
 passlib[bcrypt]==1.7.4

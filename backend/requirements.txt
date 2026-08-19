@@ -3,11 +3,11 @@ uvicorn[standard]==0.32.1
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 pydantic[email]==2.9.2
-pyjwt==2.9.0
+pyjwt==2.13.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 boto3==1.35.68
 requests==2.32.3
 slowapi==0.1.9
-python-multipart==0.0.12
+python-multipart==0.0.32
 alembic==1.14.0

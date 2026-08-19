@@ -157,7 +157,7 @@ function Logo({ size = 20, fontSize = 16 }) {
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <img src="/eye-logo.png" alt="" width={size} height={size} style={{ display: "block", borderRadius: "50%" }} />
       <span style={{ fontWeight: 700, fontSize }}>
-        vig<span style={{ color: COLORS.brandGreen }}>IA</span>
+        vigg<span style={{ color: COLORS.brandGreen }}>IA</span>
       </span>
     </div>
   );

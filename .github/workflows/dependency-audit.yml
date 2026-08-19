@@ -1,0 +1,38 @@
+name: Dependency audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Pega vulnerabilidades novas publicadas depois do último push/PR,
+    # nao so quando alguem mexe em dependencias.
+    - cron: "0 6 * * 1"
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [backend, edge-detection]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip-audit -r ${{ matrix.dir }}/requirements.txt
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [dashboard, admin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - working-directory: ${{ matrix.dir }}
+        run: npm audit --audit-level=high

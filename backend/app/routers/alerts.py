@@ -25,6 +25,16 @@ MAX_CLIP_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_THUMBNAIL_UPLOAD_BYTES = 10 * 1024 * 1024
 _UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 
+# O content-type do clipe é gravado como ContentType do objeto no S3/R2
+# (ver storage.py) e depois servido de volta via URL assinada — se
+# aceitássemos qualquer valor que o cliente mandar, uma box comprometida
+# (ou alguém que roubou a API key da loja) poderia declarar "text/html"
+# num clipe malicioso e conseguir XSS armazenado em quem abrisse a URL
+# direto no navegador. O alert_client.py real sempre manda "video/mp4" —
+# aceitar qualquer "video/*" dá folga pra variações de box/câmera sem
+# abrir a porta pra tipos perigosos.
+_ALLOWED_CLIP_CONTENT_TYPES_PREFIX = "video/"
+
 
 def _read_upload_limited(upload: UploadFile, max_bytes: int, field_name: str) -> bytes:
     """Lê um UploadFile em blocos, cortando assim que o total ultrapassa
@@ -85,6 +95,12 @@ def receive_alert(
             camera = db.query(Camera).filter(Camera.id == camera_id, Camera.store_id == store_id, Camera.active.is_(True)).first()
             if camera is None:
                 camera_id = None
+
+    if not (clip.content_type or "").startswith(_ALLOWED_CLIP_CONTENT_TYPES_PREFIX):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Tipo de arquivo '{clip.content_type}' não permitido para 'clip' (esperado video/*)",
+        )
 
     clip_bytes = _read_upload_limited(clip, MAX_CLIP_UPLOAD_BYTES, "clip")
     clip_url = clip_storage.upload_clip(store_id, clip_bytes, clip.content_type)

@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
+from auth import COOKIE_SECURE
 from database import engine, SessionLocal
 from models import Base
 from rate_limit import limiter
@@ -79,6 +80,13 @@ async def security_headers(request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # API pura, ninguém deveria embutir isso num <iframe>.
+    response.headers["X-Frame-Options"] = "DENY"
+    # Só faz sentido anunciar HSTS quando a conexão é de fato HTTPS (senão
+    # quebra o dev local, que roda em http:// puro) — mesmo sinal que
+    # COOKIE_SECURE já usa pra distinguir esse contexto.
+    if COOKIE_SECURE:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 

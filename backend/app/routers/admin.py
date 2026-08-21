@@ -9,7 +9,7 @@ auto-promoção de propósito: você liga ele direto no banco para sua
 própria conta, a primeira vez.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -17,11 +17,15 @@ from models import (
     Company, Store, User, Camera, Alert, TeamInvite, PasswordResetToken,
     CameraNeighbor, SuppressedEvent, PrepaidCheckout,
 )
-from schemas import AdminCompanyOut, AdminCompanyDetailOut, AdminOnboardingOut, OnboardingStatusIn
-from auth import get_current_admin
+from schemas import (
+    AdminCompanyOut, AdminCompanyDetailOut, AdminOnboardingOut, OnboardingStatusIn,
+    AdminDeleteCompanyIn,
+)
+from auth import get_current_admin, verify_password
 from tenant_context import set_platform_admin_context
 from storage import ClipStorage
 from asaas_client import AsaasClient
+from rate_limit import limiter
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 clip_storage = ClipStorage()
@@ -141,21 +145,30 @@ def resume_company(
 
 
 @router.delete("/companies/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute")
 def delete_company(
+    request: Request,
     company_id: str,
+    payload: AdminDeleteCompanyIn,
     admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     """Exclusão REAL e irreversível de uma empresa -- apaga empresa,
     lojas, câmeras, usuários, alertas (e os clipes/thumbnails no R2 de
     cada loja) e cancela a assinatura no Asaas se existir. Não tem
-    desfazer -- a confirmação (nome da empresa digitado) é feita no
-    front, este endpoint já executa direto.
+    desfazer -- a confirmação por nome da empresa é feita no front, mas
+    a ação só executa se a SENHA DO PRÓPRIO ADMIN logado bater (re-
+    autenticação pra uma ação irreversível, não basta só ter a sessão
+    ativa). Rate limit aqui é defesa extra contra uma sessão de admin
+    roubada tentando forçar a senha por tentativa e erro.
 
     Ordem importa: sem ON DELETE CASCADE configurado no banco (ver
     migrations/), cada tabela filha precisa ser esvaziada antes da
     tabela que ela referencia via FK, senão a query de delete falha
     com violação de integridade referencial."""
+    if not verify_password(payload.password, admin.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Senha incorreta")
+
     company = db.query(Company).filter(Company.id == company_id).first()
     if company is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Empresa não encontrada")

@@ -467,6 +467,7 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
   const [pauseLoading, setPauseLoading] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
@@ -493,7 +494,11 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
     setDeleteLoading(true);
     setActionError(null);
     try {
-      await api(`/v1/admin/companies/${companyId}`, { method: "DELETE" });
+      await api(`/v1/admin/companies/${companyId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: deletePassword }),
+      });
       onDeleted();
     } catch (err) {
       setActionError(err.message);
@@ -562,25 +567,35 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
           <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.red, marginBottom: 6 }}>
             Isso apaga permanentemente a empresa, lojas, usuários, alertas e clipes gravados. Não tem como desfazer.
           </div>
-          <div style={{ fontSize: 12, color: COLORS.textFaint, marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: COLORS.textFaint, marginBottom: 6 }}>
             Digite <strong style={{ color: COLORS.text, fontFamily: "'IBM Plex Mono', monospace" }}>{detail.name}</strong> pra confirmar:
+          </div>
+          <input
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder={detail.name}
+            style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: COLORS.panel, color: COLORS.text, fontSize: 12.5, marginBottom: 10, boxSizing: "border-box" }}
+          />
+          <div style={{ fontSize: 12, color: COLORS.textFaint, marginBottom: 6 }}>
+            Digite sua senha (de admin) pra confirmar:
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <input
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder={detail.name}
+              type="password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="Sua senha"
               style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: COLORS.panel, color: COLORS.text, fontSize: 12.5 }}
             />
             <button
               className="lp-btn"
               onClick={confirmDelete}
-              disabled={deleteConfirmText !== detail.name || deleteLoading}
+              disabled={deleteConfirmText !== detail.name || !deletePassword || deleteLoading}
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 6, fontSize: 12.5, border: "none",
-                background: deleteConfirmText === detail.name ? COLORS.red : COLORS.border,
-                color: deleteConfirmText === detail.name ? "#fff" : COLORS.textFaint,
-                cursor: deleteConfirmText === detail.name ? "pointer" : "not-allowed",
+                background: deleteConfirmText === detail.name && deletePassword ? COLORS.red : COLORS.border,
+                color: deleteConfirmText === detail.name && deletePassword ? "#fff" : COLORS.textFaint,
+                cursor: deleteConfirmText === detail.name && deletePassword ? "pointer" : "not-allowed",
               }}
             >
               {deleteLoading ? <Loader2 size={13} className="lp-spin" /> : <Trash2 size={13} />}

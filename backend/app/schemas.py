@@ -196,6 +196,13 @@ class OnboardingStatusIn(BaseModel):
     status: str  # "pending" | "in_progress" | "completed" — validado no router
 
 
+class AdminDeleteCompanyIn(BaseModel):
+    # Senha do PRÓPRIO admin logado (re-autenticação pra confirmar uma
+    # ação irreversível) -- não é a senha de ninguém da empresa sendo
+    # excluída, ver delete_company em routers/admin.py.
+    password: str
+
+
 class CameraOut(BaseModel):
     id: str
     store_id: str

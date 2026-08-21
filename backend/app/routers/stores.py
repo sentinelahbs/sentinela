@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Store, User, UserRole
 from schemas import StoreOut, StoreCreateIn, StoreCreateOut, EdgeWhoamiOut
-from auth import get_current_user, get_store_from_edge_key
+from auth import get_current_user, get_store_from_edge_key, hash_edge_api_key
 from tenant_context import set_company_context, set_edge_api_key_lookup
 
 router = APIRouter(prefix="/v1/stores", tags=["stores"])
@@ -47,11 +47,14 @@ def create_store(
     # nesse ponto exigiria um SELECT que o RLS ainda não liberou.
     company_id = user.company_id
 
+    # Texto puro só existe aqui, local, pra devolver na resposta desta
+    # chamada — nunca é persistido (ver Store.edge_api_key_hash).
+    plaintext_key = secrets.token_urlsafe(32)
     store = Store(
         company_id=company_id,
         name=payload.name,
         city=payload.city,
-        edge_api_key=secrets.token_urlsafe(32),
+        edge_api_key_hash=hash_edge_api_key(plaintext_key),
     )
     db.add(store)
     db.commit()
@@ -59,7 +62,7 @@ def create_store(
     # get_current_user — precisa religar antes do refresh() abaixo.
     set_company_context(db, company_id)
     db.refresh(store)
-    return store
+    return StoreCreateOut(id=store.id, name=store.name, city=store.city, edge_api_key=plaintext_key)
 
 
 # --- Recebido da BOX de detecção instalada na loja -------------------------
@@ -91,8 +94,9 @@ def edge_whoami(
     if not x_api_key:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-API-Key ausente")
 
-    set_edge_api_key_lookup(db, x_api_key)
-    store = db.query(Store).filter(Store.edge_api_key == x_api_key).first()
+    key_hash = hash_edge_api_key(x_api_key)
+    set_edge_api_key_lookup(db, key_hash)
+    store = db.query(Store).filter(Store.edge_api_key_hash == key_hash).first()
     if store is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave inválida")
 

@@ -85,9 +85,12 @@ class Store(Base):
     name = Column(String, nullable=False)
     city = Column(String, nullable=True)
 
-    # Chave usada pela BOX de detecção instalada na loja para autenticar
-    # ao enviar alertas — diferente do login do gestor no dashboard.
-    edge_api_key = Column(String, nullable=False, unique=True)
+    # Hash SHA-256 da chave usada pela BOX de detecção instalada na loja
+    # para autenticar ao enviar alertas (diferente do login do gestor no
+    # dashboard) — o valor em texto puro só existe no momento da criação
+    # (mostrado uma vez na resposta da API) e nunca é persistido; ver
+    # auth.hash_edge_api_key.
+    edge_api_key_hash = Column(String, nullable=False, unique=True)
 
     # Texto do aviso de monitoramento exibido/afixado na loja — exigido
     # pela LGPD/CLT para transparência com funcionários e clientes.

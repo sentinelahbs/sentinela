@@ -31,14 +31,17 @@ def set_store_lookup(db: Session, store_id: str) -> None:
     db.execute(text("SET LOCAL app.lookup_store_id = :sid"), {"sid": store_id})
 
 
-def set_edge_api_key_lookup(db: Session, api_key: str) -> None:
+def set_edge_api_key_lookup(db: Session, api_key_hash: str) -> None:
     """Usado só por GET /v1/edge/whoami — o assistente de configuração da
     box tem a chave da loja (mostrada uma vez no dashboard ao criar a
     loja) mas ainda não sabe o store_id, que é o que essa consulta
     resolve. Mesmo princípio de set_invite_lookup: posse da chave é a
     credencial. Diferente de set_store_lookup (que já parte de um
-    store_id conhecido), aqui a busca é pelo valor da própria chave."""
-    db.execute(text("SET LOCAL app.lookup_edge_api_key = :key"), {"key": api_key})
+    store_id conhecido), aqui a busca é pelo valor da própria chave.
+    Recebe o hash SHA-256 da chave (auth.hash_edge_api_key), não a chave
+    em texto puro — a policy de RLS compara contra a coluna
+    edge_api_key_hash (ver migração 16ee71a4394d)."""
+    db.execute(text("SET LOCAL app.lookup_edge_api_key = :key"), {"key": api_key_hash})
 
 
 def set_invite_lookup(db: Session, token: str) -> None:

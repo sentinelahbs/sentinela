@@ -8,6 +8,7 @@ Duas formas de autenticação, porque são dois "clientes" diferentes da API:
    humano pra um processo automatizado enviar um alerta.
 """
 
+import hashlib
 import os
 import datetime
 from typing import Optional
@@ -102,6 +103,17 @@ def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
 
 
+def hash_edge_api_key(key: str) -> str:
+    """SHA-256, não bcrypt: a chave já nasce com 256 bits de entropia
+    aleatória (secrets.token_urlsafe(32) em routers/stores.py e
+    routers/auth.py), então não precisa de custo computacional pra
+    resistir a força bruta como uma senha escolhida por humano — e
+    precisa ser determinístico pra permitir lookup direto por igualdade
+    no banco (get_store_from_edge_key, GET /v1/edge/whoami), o que um
+    hash salgado (bcrypt) não permite sem varrer a tabela inteira."""
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
 def create_access_token(user_id: str, company_id: str) -> str:
     payload = {
         "sub": user_id,
@@ -147,7 +159,7 @@ def get_store_from_edge_key(
     set_store_lookup(db, store_id)
 
     store = db.query(Store).filter(Store.id == store_id).first()
-    if store is None or store.edge_api_key != x_api_key:
+    if store is None or store.edge_api_key_hash != hash_edge_api_key(x_api_key):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Credencial inválida para esta loja")
     return store
 

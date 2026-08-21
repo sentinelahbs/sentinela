@@ -16,6 +16,7 @@ from schemas import (
 from auth import (
     verify_password, hash_password, create_access_token, get_current_user,
     set_auth_cookie, clear_auth_cookie, require_csrf_header, user_to_me_out,
+    hash_edge_api_key,
 )
 from email_client import EmailClient
 from turnstile import verify_turnstile
@@ -134,11 +135,14 @@ def signup(request: Request, response: Response, payload: SignupIn, db: Session 
         prepaid.status = "claimed"
         prepaid.claimed_company_id = company_id
 
+    # Texto puro só existe aqui, local, pra devolver na resposta desta
+    # chamada — nunca é persistido (ver Store.edge_api_key_hash).
+    store_plaintext_key = secrets.token_urlsafe(32)
     store = Store(
         company_id=company.id,
         name=payload.store_name,
         city=payload.store_city,
-        edge_api_key=secrets.token_urlsafe(32),
+        edge_api_key_hash=hash_edge_api_key(store_plaintext_key),
     )
     db.add(store)
 
@@ -172,7 +176,7 @@ def signup(request: Request, response: Response, payload: SignupIn, db: Session 
 
     token = create_access_token(user_id=user.id, company_id=company_id)
     set_auth_cookie(response, token)
-    return SignupOut(store_id=store.id, store_edge_api_key=store.edge_api_key)
+    return SignupOut(store_id=store.id, store_edge_api_key=store_plaintext_key)
 
 
 @router.post("/login", response_model=MeOut)

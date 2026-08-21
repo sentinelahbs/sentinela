@@ -85,13 +85,22 @@ def require_csrf_header(request: Request) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Requisição bloqueada (proteção CSRF)")
 
 
-def user_to_me_out(user: User) -> MeOut:
+def user_to_me_out(user: User, db: Session) -> MeOut:
     """Compartilhado entre login, signup, reset de senha e aceite de
     convite — todos devolvem o mesmo formato pra quem chamou saber quem
-    acabou de autenticar, sem precisar de uma segunda chamada a /me."""
+    acabou de autenticar, sem precisar de uma segunda chamada a /me.
+    Religa o contexto de RLS pra company_id do usuário antes de ler
+    access_paused: cada chamador tem um contexto de sessão diferente
+    ativo nesse ponto (auth_bootstrap no login, lookup de token no
+    reset de senha/convite) — nenhum deles necessariamente libera SELECT
+    em companies, então relê explícito em vez de confiar em qual
+    contexto já estava ligado."""
+    set_company_context(db, user.company_id)
+    company = db.query(Company).filter(Company.id == user.company_id).first()
     return MeOut(
         id=user.id, name=user.name, email=user.email,
         role=user.role.value, is_platform_admin=user.is_platform_admin,
+        access_paused=bool(company and company.access_paused),
     )
 
 
@@ -141,18 +150,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.query(User).filter(User.id == payload["sub"]).first()
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuário não encontrado")
-
-    # Suspensão administrativa (painel admin interno, ver routers/admin.py)
-    # -- separada de cobrança de propósito, ver Company.access_paused em
-    # models.py. Isenta is_platform_admin: get_current_admin (abaixo)
-    # DEPENDE deste get_current_user, então sem essa exceção pausar a
-    # própria empresa interna do VigIA por engano trancaria a equipe
-    # pra fora do painel admin também, não só o dashboard do cliente.
-    if not user.is_platform_admin:
-        company = db.query(Company).filter(Company.id == user.company_id).first()
-        if company is not None and company.access_paused:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Conta pausada. Entre em contato com o suporte.")
-
     return user
 
 

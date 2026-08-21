@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 import datetime
 
 from database import get_db
-from models import Alert, AlertStatus, Camera, Store, User
+from models import Alert, AlertStatus, Camera, Company, Store, User
 from schemas import AlertOut, AlertReviewIn
 from auth import get_current_user, get_store_from_edge_key, assert_user_can_access_store
 from storage import ClipStorage
@@ -77,6 +77,17 @@ def receive_alert(
     """Endpoint chamado pela box de cada loja (ver alert_client.py do
     módulo de detecção). Autenticado por API key da loja, não por login
     de usuário — quem chama aqui é um dispositivo, não uma pessoa."""
+
+    # Empresa pausada pelo painel admin (ver routers/admin.py e
+    # Company.access_paused) -- serviço de detecção fica inativo:
+    # rejeita o alerta antes de gastar banda/processamento com o
+    # upload do clipe. get_store_from_edge_key só libera RLS pra essa
+    # linha específica de stores, não pra companies -- precisa religar
+    # o contexto pra company_id da loja antes de conseguir ler isso.
+    set_company_context(db, store.company_id)
+    company = db.query(Company).filter(Company.id == store.company_id).first()
+    if company is not None and company.access_paused:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Serviço de detecção pausado para esta empresa")
 
     # camera_id vem de fora (config da box) — nunca confia cru. Boxes
     # ainda não migradas mandam um placeholder de texto livre (ex:

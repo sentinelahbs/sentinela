@@ -154,6 +154,7 @@ class MeOut(BaseModel):
     email: EmailStr
     role: str
     is_platform_admin: bool
+    access_paused: bool
 
 
 class AdminCompanyOut(BaseModel):

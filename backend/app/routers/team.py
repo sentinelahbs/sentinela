@@ -252,4 +252,4 @@ def accept_invite(token: str, payload: InviteAcceptIn, request: Request, respons
 
     token_value = create_access_token(user_id=user.id, company_id=company_id)
     set_auth_cookie(response, token_value)
-    return user_to_me_out(user)
+    return user_to_me_out(user, db)

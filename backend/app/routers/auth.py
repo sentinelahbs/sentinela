@@ -199,7 +199,7 @@ def login(request: Request, response: Response, payload: LoginIn, db: Session = 
 
     token = create_access_token(user_id=user.id, company_id=user.company_id)
     set_auth_cookie(response, token)
-    return user_to_me_out(user)
+    return user_to_me_out(user, db)
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordOut)
@@ -319,7 +319,7 @@ def reset_password(request: Request, response: Response, payload: ResetPasswordI
 
     token_value = create_access_token(user_id=user_id, company_id=company_id)
     set_auth_cookie(response, token_value)
-    return user_to_me_out(user)
+    return user_to_me_out(user, db)
 
 
 @router.post("/logout")
@@ -330,9 +330,9 @@ def logout(request: Request, response: Response):
 
 
 @router.get("/me", response_model=MeOut)
-def me(user: User = Depends(get_current_user)):
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Usado pelo frontend pra restaurar a sessão ao carregar a página
     (o cookie HttpOnly não pode ser lido por JS, então isso aqui é como
     o front sabe se já está autenticado) e pra saber se essa pessoa tem
     acesso ao painel administrativo interno (is_platform_admin)."""
-    return user_to_me_out(user)
+    return user_to_me_out(user, db)

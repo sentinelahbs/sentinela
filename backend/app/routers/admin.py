@@ -109,10 +109,12 @@ def pause_company(
     admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """Suspende o ACESSO da empresa ao dashboard (get_current_user em
-    auth.py), sem mexer em cobrança -- subscription_status continua
-    intocado, a assinatura no Asaas (se existir) segue cobrando
-    normalmente. Ver Company.access_paused."""
+    """Suspende o SERVIÇO DE DETECÇÃO da empresa, não o login -- o
+    dashboard continua acessível (o gestor precisa ver que está pausado),
+    mas a box para de conseguir registrar alerta novo (receive_alert em
+    routers/alerts.py rejeita com 403). Sem mexer em cobrança --
+    subscription_status continua intocado, a assinatura no Asaas (se
+    existir) segue cobrando normalmente. Ver Company.access_paused."""
     company = db.query(Company).filter(Company.id == company_id).first()
     if company is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Empresa não encontrada")

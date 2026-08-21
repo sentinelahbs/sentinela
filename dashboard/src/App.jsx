@@ -1905,7 +1905,7 @@ function CamerasPanel({ api, stores }) {
   );
 }
 
-function Dashboard({ onLogout }) {
+function Dashboard({ onLogout, accessPaused }) {
   const api = useApiClient(onLogout);
 
   const [stores, setStores] = useState([]);
@@ -2176,6 +2176,13 @@ function Dashboard({ onLogout }) {
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, width: isMobile ? "100%" : "auto" }}>
+        {accessPaused && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 22px", background: COLORS.amberDim, borderBottom: `1px solid ${COLORS.amber}`, color: COLORS.amber, fontSize: 12.5 }}>
+            <AlertTriangle size={14} />
+            Serviço de detecção pausado — as câmeras não estão gerando novos alertas. Entre em contato com o suporte pra reativar.
+          </div>
+        )}
+
         {isMobile && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${COLORS.border}`, background: COLORS.panel }}>
             <button
@@ -2525,7 +2532,16 @@ function AcceptInviteScreen({ token, onAccepted }) {
 export default function App() {
   const [view, setView] = useState("login"); // "login" | "signup" | "forgot"
   const [authenticated, setAuthenticated] = useState(false);
+  const [accessPaused, setAccessPaused] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Chamado por login/reset de senha/aceite de convite — todos devolvem
+  // o mesmo formato (MeOut, com access_paused) na própria resposta, sem
+  // precisar de uma segunda chamada a /me.
+  function handleAuthenticated(data) {
+    setAuthenticated(true);
+    setAccessPaused(Boolean(data?.access_paused));
+  }
 
   // A sessão agora vive num cookie HttpOnly (não mais em localStorage) —
   // o front não consegue ler o token, então descobre se já está
@@ -2538,6 +2554,10 @@ export default function App() {
         headers: { "X-Requested-With": "XMLHttpRequest" },
       });
       setAuthenticated(res.ok);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        setAccessPaused(Boolean(data?.access_paused));
+      }
     } catch {
       setAuthenticated(false);
     } finally {
@@ -2587,11 +2607,11 @@ export default function App() {
   }
 
   if (!authenticated && resetToken) {
-    return <ResetPasswordScreen token={resetToken} onReset={() => setAuthenticated(true)} />;
+    return <ResetPasswordScreen token={resetToken} onReset={handleAuthenticated} />;
   }
 
   if (!authenticated && inviteToken) {
-    return <AcceptInviteScreen token={inviteToken} onAccepted={() => setAuthenticated(true)} />;
+    return <AcceptInviteScreen token={inviteToken} onAccepted={handleAuthenticated} />;
   }
 
   if (!authenticated && prepaidToken) {
@@ -2605,7 +2625,7 @@ export default function App() {
   }
 
   if (authenticated) {
-    return <Dashboard onLogout={handleLogout} />;
+    return <Dashboard onLogout={handleLogout} accessPaused={accessPaused} />;
   }
 
   if (view === "signup") {
@@ -2618,7 +2638,7 @@ export default function App() {
 
   return (
     <LoginScreen
-      onLogin={() => setAuthenticated(true)}
+      onLogin={handleAuthenticated}
       onGoToSignup={() => setView("signup")}
       onGoToForgot={() => setView("forgot")}
     />

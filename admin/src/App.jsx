@@ -521,7 +521,7 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           {detail.access_paused && (
             <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: "0.04em", color: COLORS.amber }}>
-              acesso pausado
+              detecção pausada
             </span>
           )}
           <StatusBadge status={detail.subscription_status} />
@@ -545,7 +545,7 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
           }}
         >
           {pauseLoading ? <Loader2 size={13} className="lp-spin" /> : detail.access_paused ? <Play size={13} /> : <Pause size={13} />}
-          {detail.access_paused ? "Reativar acesso" : "Pausar acesso"}
+          {detail.access_paused ? "Reativar detecção" : "Pausar detecção"}
         </button>
         <button
           className="lp-btn"

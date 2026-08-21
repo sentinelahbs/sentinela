@@ -14,6 +14,7 @@ import {
   Pause,
   Play,
   Trash2,
+  X,
 } from "lucide-react";
 
 // Sem VITE_API_BASE definida (ex: rodando local com `npm run dev`),
@@ -506,6 +507,13 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
     }
   }
 
+  function closeDeletePanel() {
+    setDeleteOpen(false);
+    setDeleteConfirmText("");
+    setDeletePassword("");
+    setActionError(null);
+  }
+
   if (error) return <div style={{ padding: 22, color: COLORS.red, fontSize: 13 }}>{error}</div>;
   if (!detail) return <div style={{ padding: 22, color: COLORS.textFaint, fontSize: 13 }}>Carregando…</div>;
 
@@ -554,7 +562,7 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
         </button>
         <button
           className="lp-btn"
-          onClick={() => setDeleteOpen((v) => !v)}
+          onClick={() => (deleteOpen ? closeDeletePanel() : setDeleteOpen(true))}
           style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 6, fontSize: 12.5, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.red }}
         >
           <Trash2 size={13} />
@@ -563,8 +571,16 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
       </div>
 
       {deleteOpen && (
-        <div style={{ border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: 16, marginBottom: 22, background: "rgba(242,85,90,0.05)" }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.red, marginBottom: 6 }}>
+        <div style={{ position: "relative", border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: 16, marginBottom: 22, background: "rgba(242,85,90,0.05)" }}>
+          <button
+            className="lp-btn"
+            onClick={closeDeletePanel}
+            aria-label="Cancelar exclusão"
+            style={{ position: "absolute", top: 10, right: 10, display: "flex", border: "none", background: "transparent", color: COLORS.textFaint, padding: 4 }}
+          >
+            <X size={14} />
+          </button>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.red, marginBottom: 6, paddingRight: 20 }}>
             Isso apaga permanentemente a empresa, lojas, usuários, alertas e clipes gravados. Não tem como desfazer.
           </div>
           <div style={{ fontSize: 12, color: COLORS.textFaint, marginBottom: 6 }}>

@@ -749,20 +749,20 @@ function Stat({ icon, label, value, foot, variant, bars }) {
         background: isPrimary ? `linear-gradient(135deg, rgba(245,166,35,0.09), ${COLORS.panel} 55%)` : COLORS.panel,
         border: `1px solid ${isPrimary ? COLORS.amberDim : COLORS.border}`,
         borderRadius: 10,
-        padding: isPrimary ? "18px 20px" : "16px 18px",
+        padding: isPrimary ? "13px 16px" : "11px 14px",
       }}
     >
       {isPrimary && (
         <div
           aria-hidden="true"
           style={{
-            position: "absolute", top: -40, right: -40, width: 120, height: 120, borderRadius: "50%",
+            position: "absolute", top: -32, right: -32, width: 96, height: 96, borderRadius: "50%",
             background: "radial-gradient(circle, rgba(245,166,35,0.16), transparent 70%)",
             pointerEvents: "none",
           }}
         />
       )}
-      <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.08em", color: COLORS.textMuted, marginBottom: 10 }}>
+      <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.08em", color: COLORS.textMuted, marginBottom: 6 }}>
         {icon}
         {label}
       </div>
@@ -770,7 +770,7 @@ function Stat({ icon, label, value, foot, variant, bars }) {
         style={{
           position: "relative",
           fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: isPrimary ? 42 : variant === "ok" ? 30 : 34,
+          fontSize: isPrimary ? 30 : variant === "ok" ? 20 : 24,
           fontWeight: 700,
           lineHeight: 1,
           color: valueColor,
@@ -780,7 +780,7 @@ function Stat({ icon, label, value, foot, variant, bars }) {
         {value}
       </div>
       {bars && bars.length > 0 && (
-        <div style={{ position: "relative", display: "flex", alignItems: "flex-end", gap: 3, height: 22, marginTop: 12 }}>
+        <div style={{ position: "relative", display: "flex", alignItems: "flex-end", gap: 3, height: 16, marginTop: 8 }}>
           {bars.map((h, i) => (
             <i
               key={i}
@@ -2263,9 +2263,9 @@ function Dashboard({ onLogout, accessPaused }) {
                 <div className="lp-fade-up" style={{ padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
                   <div
                     style={{
-                      width: 108, height: 108, borderRadius: "50%", position: "relative", overflow: "hidden",
+                      width: 168, height: 168, borderRadius: "50%", position: "relative", overflow: "hidden",
                       background:
-                        "repeating-radial-gradient(circle, transparent 0, transparent 17px, rgba(61,214,140,0.09) 18px), radial-gradient(circle, rgba(61,214,140,0.06), transparent 70%)",
+                        "repeating-radial-gradient(circle, transparent 0, transparent 26px, rgba(61,214,140,0.09) 27px), radial-gradient(circle, rgba(61,214,140,0.06), transparent 70%)",
                       border: `1px solid ${COLORS.tealDim}`,
                       marginBottom: 18,
                     }}

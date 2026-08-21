@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  ShieldAlert,
   Building2,
   Store,
   Users,
@@ -12,6 +11,9 @@ import {
   Eye,
   EyeOff,
   Check,
+  Pause,
+  Play,
+  Trash2,
 } from "lucide-react";
 
 // Sem VITE_API_BASE definida (ex: rodando local com `npm run dev`),
@@ -188,7 +190,7 @@ function Logo({ size = 20, fontSize = 16 }) {
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
       <img src="/eye-logo.png" alt="" width={size} height={size} style={{ display: "block", borderRadius: "50%" }} />
       <span style={{ fontWeight: 700, fontSize }}>
-        vig<span style={{ color: COLORS.brandGreen }}>IA</span>
+        vigg<span style={{ color: COLORS.brandGreen }}>IA</span>
       </span>
     </div>
   );
@@ -458,15 +460,46 @@ function AccessDenied({ onLogout }) {
   );
 }
 
-function CompanyDetail({ api, companyId, onBack }) {
+function CompanyDetail({ api, companyId, onBack, onDeleted }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const [pauseLoading, setPauseLoading] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     api(`/v1/admin/companies/${companyId}`)
       .then(setDetail)
       .catch((err) => setError(err.message));
   }, [api, companyId]);
+
+  async function togglePause() {
+    setPauseLoading(true);
+    setActionError(null);
+    try {
+      const action = detail.access_paused ? "resume" : "pause";
+      const updated = await api(`/v1/admin/companies/${companyId}/${action}`, { method: "POST" });
+      setDetail(updated);
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setPauseLoading(false);
+    }
+  }
+
+  async function confirmDelete() {
+    setDeleteLoading(true);
+    setActionError(null);
+    try {
+      await api(`/v1/admin/companies/${companyId}`, { method: "DELETE" });
+      onDeleted();
+    } catch (err) {
+      setActionError(err.message);
+      setDeleteLoading(false);
+    }
+  }
 
   if (error) return <div style={{ padding: 22, color: COLORS.red, fontSize: 13 }}>{error}</div>;
   if (!detail) return <div style={{ padding: 22, color: COLORS.textFaint, fontSize: 13 }}>Carregando…</div>;
@@ -485,8 +518,77 @@ function CompanyDetail({ api, companyId, onBack }) {
             cliente desde {new Date(detail.created_at).toLocaleDateString("pt-BR")}
           </div>
         </div>
-        <StatusBadge status={detail.subscription_status} />
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {detail.access_paused && (
+            <span style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: "0.04em", color: COLORS.amber }}>
+              acesso pausado
+            </span>
+          )}
+          <StatusBadge status={detail.subscription_status} />
+        </div>
       </div>
+
+      {actionError && (
+        <div style={{ padding: "8px 12px", background: "rgba(242,85,90,0.1)", color: COLORS.red, fontSize: 12, borderRadius: 6, marginBottom: 16 }}>{actionError}</div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 22 }}>
+        <button
+          className="lp-btn"
+          onClick={togglePause}
+          disabled={pauseLoading}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 6, fontSize: 12.5,
+            border: `1px solid ${detail.access_paused ? COLORS.teal : COLORS.border}`,
+            background: "transparent",
+            color: detail.access_paused ? COLORS.teal : COLORS.textMuted,
+          }}
+        >
+          {pauseLoading ? <Loader2 size={13} className="lp-spin" /> : detail.access_paused ? <Play size={13} /> : <Pause size={13} />}
+          {detail.access_paused ? "Reativar acesso" : "Pausar acesso"}
+        </button>
+        <button
+          className="lp-btn"
+          onClick={() => setDeleteOpen((v) => !v)}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 6, fontSize: 12.5, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.red }}
+        >
+          <Trash2 size={13} />
+          Excluir empresa
+        </button>
+      </div>
+
+      {deleteOpen && (
+        <div style={{ border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: 16, marginBottom: 22, background: "rgba(242,85,90,0.05)" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.red, marginBottom: 6 }}>
+            Isso apaga permanentemente a empresa, lojas, usuários, alertas e clipes gravados. Não tem como desfazer.
+          </div>
+          <div style={{ fontSize: 12, color: COLORS.textFaint, marginBottom: 10 }}>
+            Digite <strong style={{ color: COLORS.text, fontFamily: "'IBM Plex Mono', monospace" }}>{detail.name}</strong> pra confirmar:
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={detail.name}
+              style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: COLORS.panel, color: COLORS.text, fontSize: 12.5 }}
+            />
+            <button
+              className="lp-btn"
+              onClick={confirmDelete}
+              disabled={deleteConfirmText !== detail.name || deleteLoading}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 6, fontSize: 12.5, border: "none",
+                background: deleteConfirmText === detail.name ? COLORS.red : COLORS.border,
+                color: deleteConfirmText === detail.name ? "#fff" : COLORS.textFaint,
+                cursor: deleteConfirmText === detail.name ? "pointer" : "not-allowed",
+              }}
+            >
+              {deleteLoading ? <Loader2 size={13} className="lp-spin" /> : <Trash2 size={13} />}
+              Excluir de vez
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, fontSize: 12.5 }}>
         <span style={{ color: COLORS.textFaint }}>Câmeras:</span>
@@ -676,7 +778,7 @@ function AdminPanel({ onLogout }) {
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
 
-  useEffect(() => {
+  const loadCompanies = useCallback(() => {
     api("/v1/admin/companies")
       .then((data) => {
         setCompanies(data);
@@ -688,6 +790,10 @@ function AdminPanel({ onLogout }) {
       });
   }, [api]);
 
+  useEffect(() => {
+    loadCompanies();
+  }, [loadCompanies]);
+
   const totalStores = companies.reduce((sum, c) => sum + c.store_count, 0);
   const activeCount = companies.filter((c) => c.subscription_status === "active").length;
   const overdueCount = companies.filter((c) => c.subscription_status === "overdue").length;
@@ -698,9 +804,8 @@ function AdminPanel({ onLogout }) {
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 22px", borderBottom: `1px solid ${COLORS.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <ShieldAlert size={19} color={COLORS.amber} />
-          <span style={{ fontWeight: 700, fontSize: 15 }}>VigIA</span>
-          <span style={{ fontSize: 11, color: COLORS.textFaint, marginLeft: 4 }}>· admin interno</span>
+          <Logo size={19} fontSize={15} />
+          <span style={{ fontSize: 11, color: COLORS.textFaint, marginLeft: -2 }}>· admin interno</span>
         </div>
         <button className="lp-btn" onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", color: COLORS.textFaint, fontSize: 12.5 }}>
           <LogOut size={13} />
@@ -729,7 +834,15 @@ function AdminPanel({ onLogout }) {
           )}
 
           {selectedId ? (
-            <CompanyDetail api={api} companyId={selectedId} onBack={() => setSelectedId(null)} />
+            <CompanyDetail
+              api={api}
+              companyId={selectedId}
+              onBack={() => setSelectedId(null)}
+              onDeleted={() => {
+                setSelectedId(null);
+                loadCompanies();
+              }}
+            />
           ) : (
             <div style={{ flex: 1, overflowY: "auto" }}>
               {loading ? (
@@ -751,7 +864,14 @@ function AdminPanel({ onLogout }) {
                   <tbody>
                     {companies.map((c) => (
                       <tr key={c.id} className="lp-row" onClick={() => setSelectedId(c.id)} style={{ borderTop: `1px solid ${COLORS.borderSoft}` }}>
-                        <td style={{ padding: "12px 22px", fontWeight: 500 }}>{c.name}</td>
+                        <td style={{ padding: "12px 22px", fontWeight: 500 }}>
+                          {c.name}
+                          {c.access_paused && (
+                            <span style={{ marginLeft: 8, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", color: COLORS.amber }}>
+                              pausada
+                            </span>
+                          )}
+                        </td>
                         <td style={{ padding: "12px" }}>{c.store_count}</td>
                         <td style={{ padding: "12px" }}>{c.user_count}</td>
                         <td

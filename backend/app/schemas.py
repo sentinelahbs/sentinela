@@ -165,6 +165,7 @@ class AdminCompanyOut(BaseModel):
     subscription_status: str
     camera_limit: int
     cameras_used: int
+    access_paused: bool
 
 
 class AdminCompanyDetailOut(BaseModel):
@@ -174,6 +175,7 @@ class AdminCompanyDetailOut(BaseModel):
     subscription_status: str
     camera_limit: int
     cameras_used: int
+    access_paused: bool
     stores: list[StoreOut]
     users: list[TeamMemberOut]
 

@@ -57,6 +57,14 @@ class Company(Base):
     # Alembic tentava reverter essa constraint na próxima migração.
     subscription_status = Column(String, nullable=False, default="none")  # none | pending | active | overdue | canceled
 
+    # Suspensão administrativa de ACESSO, separada de subscription_status
+    # de propósito — subscription_status só reflete cobrança (setado pelo
+    # webhook do Asaas), nunca controla se o cliente consegue usar o
+    # dashboard. access_paused é a ação manual do painel admin ("pausar
+    # empresa"): bloqueia o login/uso sem mexer em cobrança nenhuma (ver
+    # get_current_user em auth.py).
+    access_paused = Column(Boolean, nullable=False, default=False)
+
     # Quantas câmeras a empresa contratou, no total (soma de todos os
     # pacotes de 5). Isso é o que limita quantas câmeras podem ser
     # cadastradas em qualquer loja da empresa, somadas. NOT NULL: o

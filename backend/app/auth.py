@@ -19,7 +19,7 @@ from fastapi import Depends, HTTPException, status, Header, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Store, UserRole
+from models import User, Store, UserRole, Company
 from schemas import MeOut
 from tenant_context import set_company_context, set_store_lookup, set_platform_admin_context
 
@@ -141,6 +141,18 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.query(User).filter(User.id == payload["sub"]).first()
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuário não encontrado")
+
+    # Suspensão administrativa (painel admin interno, ver routers/admin.py)
+    # -- separada de cobrança de propósito, ver Company.access_paused em
+    # models.py. Isenta is_platform_admin: get_current_admin (abaixo)
+    # DEPENDE deste get_current_user, então sem essa exceção pausar a
+    # própria empresa interna do VigIA por engano trancaria a equipe
+    # pra fora do painel admin também, não só o dashboard do cliente.
+    if not user.is_platform_admin:
+        company = db.query(Company).filter(Company.id == user.company_id).first()
+        if company is not None and company.access_paused:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Conta pausada. Entre em contato com o suporte.")
+
     return user
 
 

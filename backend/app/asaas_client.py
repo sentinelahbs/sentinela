@@ -67,6 +67,18 @@ class AsaasClient:
         resp.raise_for_status()
         return resp.json()
 
+    def cancel_subscription(self, subscription_id: str):
+        """Cancela a assinatura recorrente no Asaas -- usado na exclusão
+        real de empresa pelo painel admin, pra não deixar cobrança
+        rodando pra uma conta que não existe mais no nosso banco. Asaas
+        devolve 404 se a assinatura já tiver sido cancelada/não existir
+        mais lá; tratamos como sucesso (fim desejado já alcançado)."""
+        resp = self.session.delete(f"{ASAAS_BASE_URL}/subscriptions/{subscription_id}")
+        if resp.status_code == 404:
+            return {"deleted": True, "id": subscription_id}
+        resp.raise_for_status()
+        return resp.json()
+
     def create_payment(self, customer_id: str, value: float, description: str, due_date: str):
         """Cobrança avulsa (não recorrente) — usada para cobrar AGORA a
         diferença de um upgrade de pacotes no meio do ciclo, enquanto a

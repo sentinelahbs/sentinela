@@ -39,6 +39,19 @@ class ClipStorage:
         )
         return self._public_or_signed_url(key)
 
+    def delete_store_clips(self, store_id: str) -> None:
+        """Apaga todos os clipes e thumbnails de uma loja (chave sempre
+        prefixada por "{store_id}/", ver upload_clip/upload_thumbnail
+        acima) -- usado na exclusão real de empresa pelo painel admin,
+        pra não deixar vídeo de pessoa real órfão no bucket pra sempre.
+        Paginado porque uma loja com meses de histórico pode passar dos
+        1000 objetos que list_objects_v2 devolve por página."""
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=f"{store_id}/"):
+            keys = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+            if keys:
+                self.client.delete_objects(Bucket=BUCKET_NAME, Delete={"Objects": keys})
+
     def _public_or_signed_url(self, key: str) -> str:
         # Clipes contêm imagem de pessoas reais — em produção usar URL
         # assinada com expiração curta, não um bucket público.

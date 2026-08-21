@@ -13,12 +13,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Company, Store, User, Camera
+from models import (
+    Company, Store, User, Camera, Alert, TeamInvite, PasswordResetToken,
+    CameraNeighbor, SuppressedEvent, PrepaidCheckout,
+)
 from schemas import AdminCompanyOut, AdminCompanyDetailOut, AdminOnboardingOut, OnboardingStatusIn
 from auth import get_current_admin
 from tenant_context import set_platform_admin_context
+from storage import ClipStorage
+from asaas_client import AsaasClient
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
+clip_storage = ClipStorage()
+asaas = AsaasClient()
 
 ONBOARDING_STATUSES = ("pending", "in_progress", "completed")
 
@@ -57,6 +64,7 @@ def list_companies(
             subscription_status=company.subscription_status,
             camera_limit=company.camera_limit or 0,
             cameras_used=cameras_used,
+            access_paused=company.access_paused,
         ))
     return result
 
@@ -89,9 +97,111 @@ def get_company_detail(
         subscription_status=company.subscription_status,
         camera_limit=company.camera_limit or 0,
         cameras_used=cameras_used,
+        access_paused=company.access_paused,
         stores=stores,
         users=[_team_member_out(u) for u in users],
     )
+
+
+@router.post("/companies/{company_id}/pause", response_model=AdminCompanyDetailOut)
+def pause_company(
+    company_id: str,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Suspende o ACESSO da empresa ao dashboard (get_current_user em
+    auth.py), sem mexer em cobrança -- subscription_status continua
+    intocado, a assinatura no Asaas (se existir) segue cobrando
+    normalmente. Ver Company.access_paused."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Empresa não encontrada")
+    company.access_paused = True
+    db.commit()
+    set_platform_admin_context(db)
+    return get_company_detail(company_id, admin, db)
+
+
+@router.post("/companies/{company_id}/resume", response_model=AdminCompanyDetailOut)
+def resume_company(
+    company_id: str,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Reverte pause_company -- libera o acesso de volta."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Empresa não encontrada")
+    company.access_paused = False
+    db.commit()
+    set_platform_admin_context(db)
+    return get_company_detail(company_id, admin, db)
+
+
+@router.delete("/companies/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_company(
+    company_id: str,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Exclusão REAL e irreversível de uma empresa -- apaga empresa,
+    lojas, câmeras, usuários, alertas (e os clipes/thumbnails no R2 de
+    cada loja) e cancela a assinatura no Asaas se existir. Não tem
+    desfazer -- a confirmação (nome da empresa digitado) é feita no
+    front, este endpoint já executa direto.
+
+    Ordem importa: sem ON DELETE CASCADE configurado no banco (ver
+    migrations/), cada tabela filha precisa ser esvaziada antes da
+    tabela que ela referencia via FK, senão a query de delete falha
+    com violação de integridade referencial."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Empresa não encontrada")
+
+    stores = db.query(Store).filter(Store.company_id == company_id).all()
+    store_ids = [s.id for s in stores]
+    camera_ids = [c.id for c in db.query(Camera).filter(Camera.store_id.in_(store_ids)).all()] if store_ids else []
+    user_ids = [u.id for u in db.query(User).filter(User.company_id == company_id).all()]
+
+    if store_ids:
+        db.query(Alert).filter(Alert.store_id.in_(store_ids)).delete(synchronize_session=False)
+        db.query(SuppressedEvent).filter(SuppressedEvent.store_id.in_(store_ids)).delete(synchronize_session=False)
+    if camera_ids:
+        db.query(CameraNeighbor).filter(
+            CameraNeighbor.camera_id_a.in_(camera_ids) | CameraNeighbor.camera_id_b.in_(camera_ids)
+        ).delete(synchronize_session=False)
+        db.query(Camera).filter(Camera.id.in_(camera_ids)).delete(synchronize_session=False)
+    db.query(TeamInvite).filter(TeamInvite.company_id == company_id).delete(synchronize_session=False)
+    # PrepaidCheckout.claimed_company_id referencia companies.id (FK) --
+    # sem apagar/desvincular essas linhas, o DELETE final na company
+    # falha com violação de integridade referencial se essa empresa
+    # tiver vindo do fluxo de aquisição por link (ver routers/auth.py).
+    db.query(PrepaidCheckout).filter(PrepaidCheckout.claimed_company_id == company_id).delete(synchronize_session=False)
+    if user_ids:
+        db.query(PasswordResetToken).filter(PasswordResetToken.user_id.in_(user_ids)).delete(synchronize_session=False)
+    if store_ids:
+        db.query(Store).filter(Store.id.in_(store_ids)).delete(synchronize_session=False)
+    db.query(User).filter(User.company_id == company_id).delete(synchronize_session=False)
+
+    asaas_subscription_id = company.asaas_subscription_id
+    db.query(Company).filter(Company.id == company_id).delete(synchronize_session=False)
+    db.commit()
+
+    # Fora da transação do banco de propósito: se a chamada ao Asaas
+    # falhar, os dados já foram apagados (o que a exclusão promete) --
+    # não faz sentido reverter isso por causa de uma API externa fora
+    # do nosso controle. Loga em vez de derrubar a resposta.
+    if asaas_subscription_id:
+        try:
+            asaas.cancel_subscription(asaas_subscription_id)
+        except Exception as exc:
+            print(f"[admin] Falha ao cancelar assinatura Asaas {asaas_subscription_id} (empresa {company_id} já excluída): {exc}")
+
+    for store_id in store_ids:
+        try:
+            clip_storage.delete_store_clips(store_id)
+        except Exception as exc:
+            print(f"[admin] Falha ao apagar clipes da loja {store_id} (empresa {company_id} já excluída): {exc}")
 
 
 def _onboarding_out(store: Store, company: Company) -> AdminOnboardingOut:

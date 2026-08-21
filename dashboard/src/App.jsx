@@ -2048,7 +2048,7 @@ function Dashboard({ onLogout, accessPaused }) {
         }
       >
         <div style={{ padding: "0 6px", marginBottom: 28 }}>
-          <Logo size={26} fontSize={19} />
+          <Logo size={30} fontSize={22} />
         </div>
 
         {stores.length > 0 && (

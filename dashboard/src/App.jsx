@@ -2047,8 +2047,8 @@ function Dashboard({ onLogout, accessPaused }) {
             : { width: 208, flexShrink: 0, background: COLORS.panel, borderRight: `1px solid ${COLORS.border}`, padding: "20px 14px", display: "flex", flexDirection: "column", boxShadow: SHADOW_SOFT, zIndex: 1 }
         }
       >
-        <div style={{ padding: "0 6px", marginBottom: 28 }}>
-          <Logo size={30} fontSize={22} />
+        <div style={{ padding: "0 6px", marginBottom: 28, display: "flex", justifyContent: "center" }}>
+          <Logo size={38} fontSize={27} />
         </div>
 
         {stores.length > 0 && (

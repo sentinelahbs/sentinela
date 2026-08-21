@@ -1186,8 +1186,8 @@ function TeamPanel({ api, stores }) {
 
 // Mesmo modelo de preço do backend (routers/billing.py) — só exibição,
 // a fonte de verdade de quanto cobrar é sempre o servidor.
-const CAMERAS_PER_PACKAGE = 5;
-const PRICE_PER_PACKAGE = 349;
+const CAMERAS_PER_PACKAGE = 9;
+const PRICE_PER_PACKAGE = 649.9;
 
 function BillingStatusBadge({ status }) {
   const map = {
@@ -1273,7 +1273,7 @@ function BillingPanel({ api }) {
           <CreditCard size={22} color={COLORS.textFaint} style={{ marginBottom: 10 }} />
           <div style={{ fontSize: 13.5, color: COLORS.textMuted, marginBottom: 4 }}>Nenhuma câmera contratada ainda</div>
           <div style={{ fontSize: 12, color: COLORS.textFaint, maxWidth: 320, margin: "0 auto", lineHeight: 1.5 }}>
-            Cada pacote libera {CAMERAS_PER_PACKAGE} câmeras por R$ {PRICE_PER_PACKAGE}/mês. Adicione câmeras pra começar a cadastrá-las.
+            Cada pacote libera {CAMERAS_PER_PACKAGE} câmeras por R$ {PRICE_PER_PACKAGE.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mês. Adicione câmeras pra começar a cadastrá-las.
           </div>
         </div>
       ) : (
@@ -1288,7 +1288,7 @@ function BillingPanel({ api }) {
             <div style={{ height: "100%", width: `${usagePct}%`, background: atLimit ? COLORS.red : COLORS.teal, borderRadius: 5, transition: "width .25s ease" }} />
           </div>
           <div style={{ fontSize: 11.5, color: COLORS.textFaint }}>
-            {Math.floor(status.camera_limit / CAMERAS_PER_PACKAGE)} pacote(s) de {CAMERAS_PER_PACKAGE} câmeras — R$ {(Math.floor(status.camera_limit / CAMERAS_PER_PACKAGE) * PRICE_PER_PACKAGE).toLocaleString("pt-BR")}/mês
+            {Math.floor(status.camera_limit / CAMERAS_PER_PACKAGE)} pacote(s) de {CAMERAS_PER_PACKAGE} câmeras — R$ {(Math.floor(status.camera_limit / CAMERAS_PER_PACKAGE) * PRICE_PER_PACKAGE).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mês
           </div>
           {atLimit && (
             <div style={{ marginTop: 12, fontSize: 12.5, color: COLORS.red, display: "flex", alignItems: "center", gap: 6 }}>
@@ -1346,7 +1346,7 @@ function SubscribeModal({ api, onClose, onSubscribed }) {
           <>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Adicionar mais câmeras</div>
             <p style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 0, marginBottom: 16 }}>
-              Cada pacote libera {CAMERAS_PER_PACKAGE} câmeras por R$ {PRICE_PER_PACKAGE}/mês.
+              Cada pacote libera {CAMERAS_PER_PACKAGE} câmeras por R$ {PRICE_PER_PACKAGE.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mês.
             </p>
             <form onSubmit={handleSubmit}>
               <div style={{ marginBottom: 14 }}>
@@ -1378,7 +1378,7 @@ function SubscribeModal({ api, onClose, onSubscribed }) {
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: COLORS.panelAlt, borderRadius: 7, marginBottom: 14, fontSize: 13 }}>
                 <span style={{ color: COLORS.textMuted }}>{packages * CAMERAS_PER_PACKAGE} câmeras</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>R$ {(packages * PRICE_PER_PACKAGE).toLocaleString("pt-BR")}/mês</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>R$ {(packages * PRICE_PER_PACKAGE).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mês</span>
               </div>
 
               <ErrorNote message={error} />

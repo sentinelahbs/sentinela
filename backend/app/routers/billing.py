@@ -1,7 +1,7 @@
 """
 Cobrança da assinatura mensal via Pix (Asaas) — em pacotes de câmeras.
 
-Modelo de preço: cada pacote libera 5 câmeras por R$ 349,00/mês. A
+Modelo de preço: cada pacote libera 9 câmeras por R$ 649,90/mês. A
 empresa escolhe quantos pacotes quer (camera_packages).
 
 Duas situações distintas, tratadas de forma diferente:
@@ -50,10 +50,13 @@ router = APIRouter(prefix="/v1/billing", tags=["billing"])
 asaas = AsaasClient()
 
 # Preço por pacote de câmeras — mude aqui se o valor ou o tamanho do
-# pacote mudar; é a única fonte de verdade usada tanto na cobrança
-# quanto na exibição no dashboard/admin.
-CAMERAS_PER_PACKAGE = 5
-PRICE_PER_PACKAGE = 349.00
+# pacote mudar. É a fonte de verdade usada na cobrança em si (Asaas) e
+# nas descrições de pagamento geradas pelo backend, MAS o dashboard
+# (dashboard/src/App.jsx, mesmo nome de constante) tem sua própria
+# cópia hardcoded pra exibição — não é buscada por API, então precisa
+# ser atualizada junto sempre que estes dois valores mudarem aqui.
+CAMERAS_PER_PACKAGE = 9
+PRICE_PER_PACKAGE = 649.90
 
 # Token que você define no painel do Asaas (Configurações -> Webhooks)
 # e o Asaas envia de volta em todo webhook, para provarmos que a

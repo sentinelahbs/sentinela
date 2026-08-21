@@ -1,0 +1,42 @@
+VigIA — instalacao da box de deteccao
+======================================
+
+O que e isso
+------------
+Esta pasta contem tudo que a box precisa pra rodar: nao precisa
+instalar Python nem nada extra no PC. So siga os 2 passos abaixo, em
+ordem.
+
+Antes de comecar, tenha em maos:
+  - A CHAVE DA LOJA (mostrada no dashboard web ao cadastrar a loja)
+  - O IP, usuario e senha do DVR/NVR
+  - As cameras ja cadastradas na aba "Cameras" do dashboard (o
+    assistente vai pedir o ID de cada uma)
+
+Passo 1 — Configurar.ps1
+-------------------------
+Clique com o botao direito em "Configurar.ps1" e escolha
+"Executar com PowerShell". Uma janela grafica vai abrir pedindo a
+chave da loja, os dados do DVR e as cameras. Tem um botao "Testar
+conexoes" pra confirmar que cada camera abre antes de salvar.
+
+Passo 2 — Instalar-Servico.ps1
+--------------------------------
+Clique com o botao direito em "Instalar-Servico.ps1" e escolha
+"Executar como administrador" (esse passo precisa de permissao de
+administrador porque registra um servico do Windows). A box vai
+comecar a rodar sozinha, e vai continuar rodando sozinha mesmo depois
+de reiniciar o PC — nao precisa deixar nenhuma janela aberta.
+
+Pronto. A partir daqui a box esta ativa.
+
+Se algo der errado
+-------------------
+  - Os logs de cada camera ficam em logs\camera_N.log
+  - O log do servico (se ele nao iniciar) fica em logs\service.log
+  - Pra reconfigurar do zero, rode Configurar.ps1 de novo e depois
+    Instalar-Servico.ps1 de novo (ele substitui a instalacao anterior
+    sozinho, nao precisa desinstalar antes)
+  - Pra desligar a box completamente, rode Desinstalar-Servico.ps1
+    (como administrador) — isso so desliga o servico, nao apaga a
+    configuracao salva

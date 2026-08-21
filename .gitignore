@@ -35,6 +35,12 @@ edge-detection/logs/
 dashboard/node_modules/
 dashboard/dist/
 
+# Bundle da box (Python embarcável + deps + NSSM) -- gerado por
+# edge-detection/packaging/build.ps1, centenas de MB (o zip final
+# sozinho passa do limite de 100MB do GitHub), nunca versionado. Rode
+# o build.ps1 pra gerar de novo quando precisar.
+edge-detection/packaging/dist/
+
 # Configuração local do Claude Code (específica desta máquina)
 .claude/settings.local.json
 

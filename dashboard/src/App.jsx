@@ -1573,6 +1573,22 @@ function falsePositiveTrendBars(alerts, days = 10) {
   });
 }
 
+// Histórico de confirmados (Diário/Semanal/Mensal) mostrado logo abaixo
+// dos cards de estatística. Janelas rolantes (hoje desde meia-noite,
+// últimos 7/30 dias incluindo hoje) -- mesmo princípio das barras dos
+// cards (recentDayWindows), não é calendário fechado (semana civil/mês
+// civil), só contagem, sem nenhum dado de vídeo/clipe envolvido.
+function confirmedHistorySummary(alerts) {
+  const confirmed = alerts.filter((a) => a.status === "confirmed");
+  const since = (daysAgo) => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - daysAgo);
+    return confirmed.filter((a) => new Date(a.created_at) >= start).length;
+  };
+  return { today: since(0), week: since(6), month: since(29) };
+}
+
 function StatusPanel({ stores }) {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
@@ -2059,6 +2075,7 @@ function Dashboard({ onLogout, accessPaused }) {
   const pendingBars = dailyTrendBars(alerts, "pending");
   const confirmedBars = dailyTrendBars(alerts, "confirmed");
   const falsePositiveBars = falsePositiveTrendBars(alerts);
+  const confirmedHistory = confirmedHistorySummary(alerts);
   const storeName = selectedStore === "all" ? "Todas as lojas" : stores.find((s) => s.id === selectedStore)?.name;
 
   const showEmptyState = !loadingStores && stores.length === 0;
@@ -2284,12 +2301,33 @@ function Dashboard({ onLogout, accessPaused }) {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr 1fr", gap: 14, marginBottom: 22 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr 1fr", gap: 14, marginBottom: 10 }}>
                 <Stat icon={<Bell size={14} color={COLORS.amber} />} label="Pendentes" value={pendingCount} variant="primary" bars={pendingBars} foot="aguardando sua confirmação" />
                 <Stat icon={<ShieldAlert size={14} color={COLORS.red} />} label="Confirmados" value={confirmedCount} variant="danger" bars={confirmedBars} foot="no total" />
                 {!isMobile && (
                   <Stat icon={<TrendingDown size={14} color={COLORS.teal} />} label="Taxa de falso positivo" value={`${falsePositiveRate}%`} variant="ok" bars={falsePositiveBars} foot="no total" />
                 )}
+              </div>
+
+              <div
+                style={{
+                  display: "flex", alignItems: "center", flexWrap: "wrap", gap: 16,
+                  padding: "9px 14px", background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 8,
+                  marginBottom: 22, fontSize: 12.5,
+                }}
+              >
+                <span style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.06em", color: COLORS.textFaint }}>
+                  Histórico de confirmados
+                </span>
+                <span style={{ color: COLORS.textMuted }}>
+                  Hoje <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: COLORS.red }}>{confirmedHistory.today}</b>
+                </span>
+                <span style={{ color: COLORS.textMuted }}>
+                  7 dias <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: COLORS.red }}>{confirmedHistory.week}</b>
+                </span>
+                <span style={{ color: COLORS.textMuted }}>
+                  30 dias <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: COLORS.red }}>{confirmedHistory.month}</b>
+                </span>
               </div>
             </div>
 

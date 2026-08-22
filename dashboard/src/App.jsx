@@ -32,6 +32,8 @@ import {
   Wifi,
   WifiOff,
   Link2,
+  LifeBuoy,
+  MessageCircle,
 } from "lucide-react";
 
 // Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
@@ -39,6 +41,12 @@ import {
 // no endereço de desenvolvimento local (mesmo host, porta 8000).
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:8000`;
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+
+// Canais da tela de Suporte (ver SupportPanel). SUPPORT_WHATSAPP é
+// PLACEHOLDER — trocar pelo número real (só dígitos, com DDI+DDD, ex:
+// "5592988887777") antes de divulgar pra cliente de verdade.
+const SUPPORT_WHATSAPP = "5500000000000";
+const SUPPORT_EMAIL = "sentinelahbs@gmail.com";
 
 const COLORS = {
   bg: "#0A0F1C",
@@ -1627,6 +1635,56 @@ function StatusPanel({ stores }) {
   );
 }
 
+function SupportPanel() {
+  const whatsappHref = `https://wa.me/${SUPPORT_WHATSAPP}`;
+  const emailHref = `mailto:${SUPPORT_EMAIL}`;
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
+      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Suporte</div>
+      <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 20, maxWidth: 420 }}>
+        Precisa de ajuda? Fala com a gente por um dos canais abaixo.
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 420 }}>
+        <a
+          href={whatsappHref}
+          target="_blank"
+          rel="noreferrer"
+          className="lp-btn"
+          style={{
+            display: "flex", alignItems: "center", gap: 12, padding: "14px 16px",
+            background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10,
+            color: COLORS.text, textDecoration: "none",
+          }}
+        >
+          <MessageCircle size={20} color={COLORS.teal} />
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 600 }}>WhatsApp</div>
+            <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginTop: 2 }}>Resposta mais rápida</div>
+          </div>
+        </a>
+
+        <a
+          href={emailHref}
+          className="lp-btn"
+          style={{
+            display: "flex", alignItems: "center", gap: 12, padding: "14px 16px",
+            background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10,
+            color: COLORS.text, textDecoration: "none",
+          }}
+        >
+          <Mail size={20} color={COLORS.amber} />
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 600 }}>Email</div>
+            <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginTop: 2 }}>{SUPPORT_EMAIL}</div>
+          </div>
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function CamerasPanel({ api, stores }) {
   const [selectedStoreId, setSelectedStoreId] = useState(stores[0]?.id || null);
   const [cameras, setCameras] = useState([]);
@@ -1916,7 +1974,7 @@ function Dashboard({ onLogout, accessPaused }) {
   const [loadingAlerts, setLoadingAlerts] = useState(false);
   const [error, setError] = useState(null);
   const [showAddStore, setShowAddStore] = useState(false);
-  const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team" | "billing" | "status" | "cameras"
+  const [activeView, setActiveView] = useState("alerts"); // "alerts" | "team" | "billing" | "status" | "cameras" | "support"
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("vigia_sound_enabled") !== "false");
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
@@ -2161,6 +2219,15 @@ function Dashboard({ onLogout, accessPaused }) {
         </button>
 
         <button
+          className="lp-btn lp-nav"
+          onClick={() => { setActiveView("support"); setShowMobileNav(false); }}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: activeView === "support" ? COLORS.panelAlt : "transparent", color: activeView === "support" ? COLORS.text : COLORS.textFaint, fontSize: 12.5, textAlign: "left", marginTop: 2 }}
+        >
+          <LifeBuoy size={13} />
+          Suporte
+        </button>
+
+        <button
           className="lp-btn"
           onClick={() => setSoundEnabled((prev) => !prev)}
           style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8, padding: "8px 8px", borderRadius: 7, border: "none", background: "transparent", color: COLORS.textFaint, fontSize: 12.5, textAlign: "left" }}
@@ -2243,6 +2310,8 @@ function Dashboard({ onLogout, accessPaused }) {
           <StatusPanel stores={stores} />
         ) : activeView === "cameras" ? (
           <CamerasPanel api={api} stores={stores} />
+        ) : activeView === "support" ? (
+          <SupportPanel />
         ) : showEmptyState ? (
           <div className="lp-fade-up" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: COLORS.textFaint }}>
             <Building2 size={28} color={COLORS.textFaint} style={{ opacity: 0.6 }} />

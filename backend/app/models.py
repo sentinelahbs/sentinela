@@ -149,8 +149,19 @@ class Camera(Base):
     hand_still_frames_threshold = Column(Integer, nullable=True)
     min_confidence_to_alert = Column(Float, nullable=True)
     calibration_updated_at = Column(DateTime, nullable=True)
+    # Qual admin (equipe VigIA) fez a última calibração -- só existe
+    # calibração via painel admin, então o autor é sempre um
+    # is_platform_admin (ver update_camera_calibration_admin).
+    calibration_updated_by_admin_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    calibrated_by = relationship("User", foreign_keys=[calibration_updated_by_admin_id])
 
     store = relationship("Store", back_populates="cameras")
+
+    @property
+    def calibration_updated_by_name(self):
+        # Carrega sob demanda (lazy) só quando o schema pede -- lista de
+        # câmeras por loja é pequena, N+1 aqui não é um problema real.
+        return self.calibrated_by.name if self.calibrated_by else None
 
 
 class CameraNeighbor(Base):

@@ -203,6 +203,17 @@ class AdminDeleteCompanyIn(BaseModel):
     password: str
 
 
+class AdminCameraAlertsOut(BaseModel):
+    # Contexto pra calibrar com dado, não às cegas (ver
+    # get_camera_alerts_admin em routers/admin.py): últimas detecções +
+    # contadores por período. O preview de imagem no admin reaproveita o
+    # thumbnail_url do primeiro item de `alerts` (mais recente) -- não é
+    # um snapshot dedicado, é aproximação de propósito por enquanto.
+    alerts: list[AlertOut]
+    count_24h: int
+    count_7d: int
+
+
 class CameraOut(BaseModel):
     id: str
     store_id: str
@@ -212,6 +223,7 @@ class CameraOut(BaseModel):
     hand_still_frames_threshold: Optional[int] = None
     min_confidence_to_alert: Optional[float] = None
     calibration_updated_at: Optional[datetime] = None
+    calibration_updated_by_name: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -470,12 +470,20 @@ function AccessDenied({ onLogout }) {
 // calibração remota nenhuma (backend manda null nesse caso).
 const DEFAULT_ZONE_OF_INTEREST = [[0.1, 0.35], [0.9, 0.35], [0.9, 0.98], [0.1, 0.98]];
 
+// Mesmos 3 status usados no dashboard do cliente (App.jsx lá, StatusBadge)
+// -- aqui é só o rótulo/cor, não muda o vocabulário.
+const ALERT_STATUS_MAP = {
+  pending: { label: "Aguardando revisão", color: COLORS.amber },
+  confirmed: { label: "Confirmado", color: COLORS.red },
+  dismissed: { label: "Falso positivo", color: COLORS.textFaint },
+};
+
 // Editor de calibração remota (zona de interesse + thresholds) — usado
 // aqui no admin pra ajustar câmera de loja piloto remotamente, sem
 // depender do dono logar no próprio dashboard (ver PATCH
 // /v1/admin/cameras/{id}/calibration em routers/admin.py). Mesma lógica
 // e mesmo formato do editor equivalente no dashboard do cliente.
-function CameraCalibrationEditor({ camera, onSave }) {
+function CameraCalibrationEditor({ api, camera, onSave }) {
   const zonePoints = camera.zone_of_interest && camera.zone_of_interest.length === 4
     ? camera.zone_of_interest
     : DEFAULT_ZONE_OF_INTEREST;
@@ -485,6 +493,24 @@ function CameraCalibrationEditor({ camera, onSave }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [saved, setSaved] = useState(false);
+
+  // Contexto pra calibrar com dado, não às cegas: últimas detecções da
+  // câmera + contadores 24h/7d. Carrega uma vez, ao abrir -- não é
+  // tempo real de propósito (ver AdminCameraAlertsOut no backend).
+  const [context, setContext] = useState(null);
+  const [contextError, setContextError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setContext(null);
+    setContextError(null);
+    api(`/v1/admin/cameras/${camera.id}/alerts`)
+      .then((data) => { if (!cancelled) setContext(data); })
+      .catch((err) => { if (!cancelled) setContextError(err.message); });
+    return () => { cancelled = true; };
+  }, [api, camera.id]);
+
+  const latestThumbnail = context?.alerts?.find((a) => a.thumbnail_url)?.thumbnail_url || null;
 
   function updatePoint(idx, axis, value) {
     const num = parseFloat(value);
@@ -515,6 +541,74 @@ function CameraCalibrationEditor({ camera, onSave }) {
 
   return (
     <div style={{ padding: "14px 16px", background: COLORS.bg, borderTop: `1px solid ${COLORS.borderSoft}` }}>
+      <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+        Contexto (calibração atual)
+      </div>
+
+      {contextError && (
+        <div style={{ fontSize: 11.5, color: COLORS.red, marginBottom: 12 }}>
+          Não consegui carregar o histórico: {contextError}
+        </div>
+      )}
+
+      {!context && !contextError && (
+        <div style={{ fontSize: 11.5, color: COLORS.textFaint, display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+          <Loader2 size={11} className="lp-spin" /> Carregando histórico…
+        </div>
+      )}
+
+      {context && (
+        <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
+          {latestThumbnail ? (
+            <img
+              src={latestThumbnail}
+              alt="Último quadro visto num alerta desta câmera"
+              title="Aproximação: é o thumbnail do alerta mais recente, não um snapshot ao vivo"
+              style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+            />
+          ) : (
+            <div style={{ width: 120, height: 90, borderRadius: 6, border: `1px dashed ${COLORS.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: COLORS.textFaint, textAlign: "center", padding: 6 }}>
+              sem imagem — nenhum alerta ainda
+            </div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
+            <div style={{ fontSize: 12 }}>
+              <span style={{ color: COLORS.textFaint }}>Últimas 24h: </span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: context.count_24h > 0 ? COLORS.amber : COLORS.text }}>{context.count_24h}</span>
+            </div>
+            <div style={{ fontSize: 12 }}>
+              <span style={{ color: COLORS.textFaint }}>Últimos 7 dias: </span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{context.count_7d}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {context && (
+        <div style={{ maxHeight: 160, overflowY: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 6, marginBottom: 16 }}>
+          {context.alerts.length === 0 && (
+            <div style={{ padding: "10px 12px", fontSize: 11.5, color: COLORS.textFaint }}>Nenhuma detecção registrada ainda nesta câmera.</div>
+          )}
+          {context.alerts.map((a, i) => {
+            const s = ALERT_STATUS_MAP[a.status] || { label: a.status, color: COLORS.textFaint };
+            return (
+              <div
+                key={a.id}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                  padding: "6px 12px", borderTop: i === 0 ? "none" : `1px solid ${COLORS.borderSoft}`, fontSize: 11.5,
+                }}
+              >
+                <span style={{ color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0 }}>
+                  {new Date(a.created_at).toLocaleString("pt-BR")}
+                </span>
+                <span style={{ color: s.color, textAlign: "right" }}>{s.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div style={{ fontSize: 11, color: COLORS.textFaint, marginBottom: 10 }}>
         Zona de interesse (coordenadas normalizadas 0-1)
       </div>
@@ -572,6 +666,7 @@ function CameraCalibrationEditor({ camera, onSave }) {
         {camera.calibration_updated_at && (
           <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>
             última calibração: {new Date(camera.calibration_updated_at).toLocaleString("pt-BR")}
+            {camera.calibration_updated_by_name && ` · por ${camera.calibration_updated_by_name}`}
           </span>
         )}
       </div>
@@ -841,6 +936,7 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
                     </button>
                     {expandedCameraId === camera.id && (
                       <CameraCalibrationEditor
+                        api={api}
                         camera={camera}
                         onSave={(payload) => saveCameraCalibration(s.id, camera.id, payload)}
                       />

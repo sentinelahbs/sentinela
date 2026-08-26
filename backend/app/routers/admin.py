@@ -9,7 +9,7 @@ auto-promoção de propósito: você liga ele direto no banco para sua
 própria conta, a primeira vez.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ from models import (
 )
 from schemas import (
     AdminCompanyOut, AdminCompanyDetailOut, AdminOnboardingOut, OnboardingStatusIn,
-    AdminDeleteCompanyIn, CameraOut, CameraCalibrationUpdateIn,
+    AdminDeleteCompanyIn, CameraOut, CameraCalibrationUpdateIn, AdminCameraAlertsOut,
 )
 from auth import get_current_admin, verify_password
 from tenant_context import set_platform_admin_context
@@ -125,6 +125,38 @@ def list_store_cameras_admin(
     return db.query(Camera).filter(Camera.store_id == store_id, Camera.active.is_(True)).all()
 
 
+@router.get("/cameras/{camera_id}/alerts", response_model=AdminCameraAlertsOut)
+def get_camera_alerts_admin(
+    camera_id: str,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Contexto pra calibrar com dado, não às cegas: últimas detecções da
+    câmera + contadores de 24h/7 dias. Usa o mesmo bypass de SELECT que
+    a limpeza de empresa de teste já usava (alerts_admin_select, ver
+    migração dc01c1d1b8a9) — só nunca tinha sido exposto numa rota do
+    painel admin ainda. Preview de imagem no front reaproveita o
+    thumbnail_url do primeiro item de `alerts` (o mais recente) — não é
+    um snapshot dedicado da câmera, é aproximação de propósito."""
+    camera = db.query(Camera).filter(Camera.id == camera_id, Camera.active.is_(True)).first()
+    if camera is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Câmera não encontrada")
+
+    recent = (
+        db.query(Alert)
+        .filter(Alert.camera_id == camera_id)
+        .order_by(Alert.created_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    now = datetime.utcnow()
+    count_24h = db.query(Alert).filter(Alert.camera_id == camera_id, Alert.created_at >= now - timedelta(hours=24)).count()
+    count_7d = db.query(Alert).filter(Alert.camera_id == camera_id, Alert.created_at >= now - timedelta(days=7)).count()
+
+    return AdminCameraAlertsOut(alerts=recent, count_24h=count_24h, count_7d=count_7d)
+
+
 @router.patch("/cameras/{camera_id}/calibration", response_model=CameraOut)
 def update_camera_calibration_admin(
     camera_id: str,
@@ -146,6 +178,7 @@ def update_camera_calibration_admin(
     for field, value in data.items():
         setattr(camera, field, value)
     camera.calibration_updated_at = datetime.utcnow()
+    camera.calibration_updated_by_admin_id = admin.id
 
     db.commit()
     set_platform_admin_context(db)

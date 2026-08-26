@@ -81,6 +81,14 @@ class Company(Base):
     # em renovações mensais seguintes) — é o gatilho e a referência de
     # ordenação da fila de onboarding no painel admin (ver routers/admin.py).
     payment_confirmed_at = Column(DateTime, nullable=True)
+    # Marca quando a assinatura trocou de Pix pra boleto (DDA), depois da
+    # primeira cobrança confirmada (ver webhook em routers/billing.py).
+    # Diferente de payment_confirmed_at: é resetado pra NULL toda vez que
+    # uma assinatura nova nasce (subscribe(), "PRIMEIRA ASSINATURA"),
+    # porque o controle é por assinatura, não pra empresa pra sempre —
+    # senão uma empresa que cancelou e assinou de novo nunca teria a
+    # primeira cobrança da assinatura nova cobrada em Pix.
+    billing_type_switched_at = Column(DateTime, nullable=True)
 
     stores = relationship("Store", back_populates="company")
     users = relationship("User", back_populates="company")

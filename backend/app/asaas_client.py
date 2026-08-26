@@ -56,14 +56,27 @@ class AsaasClient:
         resp.raise_for_status()
         return resp.json()  # inclui "id" (ex: "sub_xxx")
 
-    def update_subscription(self, subscription_id: str, value: float, description: str):
-        """Atualiza o VALOR da recorrência a partir do próximo ciclo —
-        usado quando a empresa compra mais pacotes de câmera e já tem
-        assinatura ativa, em vez de criar uma segunda assinatura solta."""
-        resp = self.session.put(f"{ASAAS_BASE_URL}/subscriptions/{subscription_id}", json={
-            "value": value,
-            "description": description,
-        })
+    def update_subscription(
+        self, subscription_id: str, value: float = None, description: str = None, billing_type: str = None,
+    ):
+        """Atualiza a assinatura. Dois usos:
+        - value/description: quando a empresa compra mais pacotes de câmera
+          e já tem assinatura ativa, em vez de criar uma segunda assinatura
+          solta.
+        - billing_type: troca a forma de cobrança a partir do próximo ciclo
+          (ex: "BOLETO") — usado pra trocar Pix por boleto depois da
+          primeira cobrança confirmada, ver webhook em routers/billing.py.
+        Só manda os campos que vierem preenchidos — atualização parcial,
+        não mexe no que não foi passado (cycle, nextDueDate etc. continuam
+        como já estavam no Asaas)."""
+        payload = {}
+        if value is not None:
+            payload["value"] = value
+        if description is not None:
+            payload["description"] = description
+        if billing_type is not None:
+            payload["billingType"] = billing_type
+        resp = self.session.put(f"{ASAAS_BASE_URL}/subscriptions/{subscription_id}", json=payload)
         resp.raise_for_status()
         return resp.json()
 

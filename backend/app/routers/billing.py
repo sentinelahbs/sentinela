@@ -197,6 +197,11 @@ def subscribe(
     )
     company.asaas_subscription_id = subscription["id"]
     company.subscription_status = "pending"
+    # Assinatura nova -- reseta o controle de troca Pix->boleto (ver
+    # webhook abaixo). Sem isso, uma empresa que cancelou e assinou de
+    # novo ficaria com o campo já preenchido da assinatura anterior, e a
+    # primeira cobrança desta assinatura nova nunca seria cobrada em Pix.
+    company.billing_type_switched_at = None
     db.commit()
 
     # a primeira cobrança já nasce junto com a assinatura — buscamos ela
@@ -622,6 +627,19 @@ async def asaas_webhook(
         # painel admin (ver /v1/admin/onboarding).
         if company.payment_confirmed_at is None:
             company.payment_confirmed_at = datetime.datetime.utcnow()
+        # Troca automática Pix -> boleto (DDA) depois da primeira cobrança
+        # confirmada da assinatura -- a partir da segunda cobrança em
+        # diante. subscription_id (não customer_id) garante que essa
+        # cobrança é de um ciclo da assinatura, não um pagamento avulso
+        # (upgrade de pacote de câmera ou loja adicional, que não têm
+        # "subscription" no payload -- create_payment não seta esse campo,
+        # só cobranças geradas automaticamente por uma assinatura têm).
+        # billing_type_switched_at garante que isso só acontece uma vez
+        # por assinatura (resetado quando uma assinatura nova nasce, ver
+        # subscribe() acima).
+        if subscription_id and company.billing_type_switched_at is None:
+            asaas.update_subscription(subscription_id=subscription_id, billing_type="BOLETO")
+            company.billing_type_switched_at = datetime.datetime.utcnow()
         # só agora, com pagamento confirmado (seja da assinatura nova ou
         # de um upgrade avulso), o limite de câmeras é efetivamente
         # liberado — soma ao limite existente

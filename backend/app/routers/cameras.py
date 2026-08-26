@@ -11,13 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from datetime import datetime
-
 from database import get_db
 from models import Camera, CameraNeighbor, Store, Company, User, UserRole
 from schemas import (
     CameraOut, CameraCreateIn, CameraNeighborOut, CameraNeighborCreateIn,
-    CameraCalibrationOut, CameraCalibrationUpdateIn,
+    CameraCalibrationOut,
 )
 from auth import get_current_user, get_store_from_edge_key, assert_user_can_access_store
 from tenant_context import set_company_context
@@ -248,8 +246,14 @@ def list_camera_neighbor_ids(
 
 # --- Calibração remota (ver calibration_sync.py no módulo de detecção) -----
 # zona de interesse + thresholds deixam de existir só no box_config.json
-# local e passam a poder ser ajustados pelo dashboard (dono da loja) ou
-# pelo painel admin (durante piloto), com a box buscando periodicamente.
+# local. Só a BOX lê (GET abaixo, autenticada por X-API-Key da loja) e só
+# o painel admin escreve (PATCH /v1/admin/cameras/{id}/calibration, ver
+# routers/admin.py) -- o dono da loja não tem mais acesso a controles de
+# calibração pelo dashboard, só vê resultados (alertas, histórico). Por
+# isso não existe PATCH aqui: chegou a existir uma versão que só o admin
+# conseguia usar por essa rota, mas era redundante (o admin já tem a
+# própria rota, que funciona de verdade) e continuava expondo a rota do
+# dono pra quem tentasse -- mais simples e mais seguro remover de vez.
 
 @router.get("/{camera_id}/calibration", response_model=CameraCalibrationOut)
 def get_camera_calibration(
@@ -273,43 +277,3 @@ def get_camera_calibration(
         min_confidence_to_alert=camera.min_confidence_to_alert,
         updated_at=camera.calibration_updated_at,
     )
-
-
-@router.patch("/{camera_id}/calibration", response_model=CameraOut)
-def update_camera_calibration(
-    store_id: str,
-    camera_id: str,
-    payload: CameraCalibrationUpdateIn,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Editado pelo dono da loja no dashboard, depois de calibrar
-    manualmente numa loja piloto. Só o OWNER mexe — mesma regra já usada
-    pra cadastrar/remover câmera, porque isso afeta diretamente o que
-    conta como comportamento suspeito."""
-    if user.role != UserRole.OWNER:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas o dono da conta pode ajustar a calibração")
-
-    store = db.query(Store).filter(Store.id == store_id).first()
-    if store is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Loja não encontrada")
-    assert_user_can_access_store(user, store)
-
-    camera = db.query(Camera).filter(Camera.id == camera_id, Camera.store_id == store_id, Camera.active.is_(True)).first()
-    if camera is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Câmera não encontrada nesta loja")
-
-    data = payload.model_dump(exclude_unset=True)
-    for field, value in data.items():
-        setattr(camera, field, value)
-    camera.calibration_updated_at = datetime.utcnow()
-
-    # Valor puro antes do commit: depois dele o SQLAlchemy expira os
-    # atributos de `user` (só lido), reler user.company_id exigiria um
-    # SELECT que o RLS ainda não liberaria nesse instante.
-    company_id = user.company_id
-
-    db.commit()
-    set_company_context(db, company_id)
-    db.refresh(camera)
-    return camera

@@ -34,9 +34,6 @@ import {
   Link2,
   LifeBuoy,
   MessageCircle,
-  Sliders,
-  ChevronDown,
-  ChevronRight,
 } from "lucide-react";
 
 // Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
@@ -1704,122 +1701,6 @@ function SupportPanel() {
   );
 }
 
-// Mesma zona padrão usada do lado da box (config.py, _DEFAULT_ZONE) --
-// só pra mostrar como placeholder quando a câmera ainda não tem
-// calibração remota nenhuma (backend manda null nesse caso).
-const DEFAULT_ZONE_OF_INTEREST = [[0.1, 0.35], [0.9, 0.35], [0.9, 0.98], [0.1, 0.98]];
-
-// Editor de calibração remota de uma câmera (zona de interesse + os dois
-// thresholds). Usado tanto no dashboard (CamerasPanel, dono da loja)
-// quanto no admin (CompanyDetail, durante a fase de piloto) -- ver
-// calibration_sync.py no módulo de detecção, que é quem realmente
-// consome isso do lado da box. Simplificação de propósito: só edita
-// zona como retângulo de 4 pontos (mesmo formato usado em todo o resto
-// do produto até hoje), não um polígono livre.
-function CameraCalibrationEditor({ camera, onSave, saveLabel = "Salvar calibração" }) {
-  const zonePoints = camera.zone_of_interest && camera.zone_of_interest.length === 4
-    ? camera.zone_of_interest
-    : DEFAULT_ZONE_OF_INTEREST;
-  const [points, setPoints] = useState(zonePoints);
-  const [threshold, setThreshold] = useState(camera.hand_still_frames_threshold ?? 6);
-  const [confidence, setConfidence] = useState(camera.min_confidence_to_alert ?? 0.55);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(null);
-  const [saved, setSaved] = useState(false);
-
-  function updatePoint(idx, axis, value) {
-    const num = parseFloat(value);
-    setPoints((prev) => prev.map((p, i) => (i === idx ? [axis === "x" ? num : p[0], axis === "y" ? num : p[1]] : p)));
-    setSaved(false);
-  }
-
-  async function handleSave() {
-    if (points.some((p) => p.some((v) => Number.isNaN(v) || v < 0 || v > 1))) {
-      setSaveError("Coordenadas da zona precisam estar entre 0 e 1");
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await onSave({
-        zone_of_interest: points,
-        hand_still_frames_threshold: threshold,
-        min_confidence_to_alert: confidence,
-      });
-      setSaved(true);
-    } catch (err) {
-      setSaveError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div style={{ padding: "14px 16px", background: COLORS.panelAlt, borderTop: `1px solid ${COLORS.borderSoft}` }}>
-      <div style={{ fontSize: 11, color: COLORS.textFaint, marginBottom: 10 }}>
-        Zona de interesse (coordenadas normalizadas 0-1, ex: perto de uma prateleira)
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
-        {points.map((p, i) => (
-          <div key={i} style={{ display: "flex", gap: 4 }}>
-            <input
-              type="number" step="0.01" min="0" max="1"
-              value={p[0]}
-              onChange={(e) => updatePoint(i, "x", e.target.value)}
-              title={`Ponto ${i + 1} — x`}
-              style={{ ...inputStyle, padding: "6px 7px", fontSize: 11.5 }}
-            />
-            <input
-              type="number" step="0.01" min="0" max="1"
-              value={p[1]}
-              onChange={(e) => updatePoint(i, "y", e.target.value)}
-              title={`Ponto ${i + 1} — y`}
-              style={{ ...inputStyle, padding: "6px 7px", fontSize: 11.5 }}
-            />
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-        <label style={{ fontSize: 11.5, color: COLORS.textMuted, display: "flex", flexDirection: "column", gap: 4 }}>
-          Frames parada até alertar
-          <input
-            type="number" min="1" step="1"
-            value={threshold}
-            onChange={(e) => { setThreshold(parseInt(e.target.value, 10)); setSaved(false); }}
-            style={{ ...inputStyle, width: 90, padding: "6px 7px", fontSize: 12 }}
-          />
-        </label>
-        <label style={{ fontSize: 11.5, color: COLORS.textMuted, display: "flex", flexDirection: "column", gap: 4 }}>
-          Confiança mínima pra alertar
-          <input
-            type="number" min="0.01" max="1" step="0.01"
-            value={confidence}
-            onChange={(e) => { setConfidence(parseFloat(e.target.value)); setSaved(false); }}
-            style={{ ...inputStyle, width: 90, padding: "6px 7px", fontSize: 12 }}
-          />
-        </label>
-      </div>
-      {saveError && <div style={{ fontSize: 11.5, color: COLORS.red, marginBottom: 8 }}>{saveError}</div>}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button
-          className="lp-btn"
-          onClick={handleSave}
-          disabled={saving}
-          style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 7, border: "none", background: COLORS.amber, color: "#1a1200", fontSize: 12, fontWeight: 600 }}
-        >
-          {saving ? <Loader2 size={12} className="lp-spin" /> : saved ? <Check size={12} /> : null}
-          {saveLabel}
-        </button>
-        {camera.calibration_updated_at && (
-          <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>
-            última calibração: {new Date(camera.calibration_updated_at).toLocaleString("pt-BR")}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function CamerasPanel({ api, stores }) {
   const [selectedStoreId, setSelectedStoreId] = useState(stores[0]?.id || null);
   const [cameras, setCameras] = useState([]);
@@ -1830,7 +1711,6 @@ function CamerasPanel({ api, stores }) {
   const [newLabel, setNewLabel] = useState("");
   const [adding, setAdding] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
-  const [expandedCameraId, setExpandedCameraId] = useState(null);
 
   useEffect(() => {
     if (!selectedStoreId && stores.length > 0) setSelectedStoreId(stores[0].id);
@@ -1895,15 +1775,6 @@ function CamerasPanel({ api, stores }) {
     navigator.clipboard?.writeText(id);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 1500);
-  }
-
-  async function saveCalibration(cameraId, payload) {
-    const updated = await api(`/v1/stores/${selectedStoreId}/cameras/${cameraId}/calibration`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    setCameras((prev) => prev.map((c) => (c.id === cameraId ? updated : c)));
   }
 
   function findNeighborPair(idA, idB) {
@@ -1973,53 +1844,42 @@ function CamerasPanel({ api, stores }) {
               </div>
             )}
             {cameras.map((camera, i) => (
-              <div key={camera.id} style={{ borderTop: i === 0 ? "none" : `1px solid ${COLORS.borderSoft}` }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
-                    padding: "12px 16px",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                    <Camera size={15} color={COLORS.textFaint} />
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{camera.label}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <code style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint, background: COLORS.panelAlt, borderRadius: 5, padding: "3px 7px" }}>
-                      {camera.id.slice(0, 8)}…
-                    </code>
-                    <button
-                      className="lp-btn"
-                      onClick={() => copyId(camera.id)}
-                      title="Copiar ID completo (usar como CAMERA_ID na box)"
-                      style={{ border: "none", background: "transparent", color: copiedId === camera.id ? COLORS.teal : COLORS.textFaint, display: "flex" }}
-                    >
-                      {copiedId === camera.id ? <Check size={13} /> : <Copy size={13} />}
-                    </button>
-                    <button
-                      className="lp-btn"
-                      onClick={() => setExpandedCameraId((prev) => (prev === camera.id ? null : camera.id))}
-                      title="Calibração remota"
-                      style={{ border: "none", background: "transparent", color: expandedCameraId === camera.id ? COLORS.amber : COLORS.textFaint, display: "flex" }}
-                    >
-                      <Sliders size={13} />
-                    </button>
-                    <button
-                      className="lp-btn"
-                      onClick={() => removeCamera(camera.id)}
-                      title="Remover câmera"
-                      style={{ border: "none", background: "transparent", color: COLORS.textFaint, display: "flex" }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+              <div
+                key={camera.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  padding: "12px 16px",
+                  borderTop: i === 0 ? "none" : `1px solid ${COLORS.borderSoft}`,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  <Camera size={15} color={COLORS.textFaint} />
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{camera.label}</span>
                 </div>
-                {expandedCameraId === camera.id && (
-                  <CameraCalibrationEditor camera={camera} onSave={(payload) => saveCalibration(camera.id, payload)} />
-                )}
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <code style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.textFaint, background: COLORS.panelAlt, borderRadius: 5, padding: "3px 7px" }}>
+                    {camera.id.slice(0, 8)}…
+                  </code>
+                  <button
+                    className="lp-btn"
+                    onClick={() => copyId(camera.id)}
+                    title="Copiar ID completo (usar como CAMERA_ID na box)"
+                    style={{ border: "none", background: "transparent", color: copiedId === camera.id ? COLORS.teal : COLORS.textFaint, display: "flex" }}
+                  >
+                    {copiedId === camera.id ? <Check size={13} /> : <Copy size={13} />}
+                  </button>
+                  <button
+                    className="lp-btn"
+                    onClick={() => removeCamera(camera.id)}
+                    title="Remover câmera"
+                    style={{ border: "none", background: "transparent", color: COLORS.textFaint, display: "flex" }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

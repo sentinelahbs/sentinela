@@ -25,6 +25,7 @@ from store_topology import fetch_neighbor_camera_ids
 from clip_recorder import ClipRecorder
 from alert_client import AlertClient
 from heartbeat import HeartbeatSender
+from calibration_sync import CalibrationSync
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("edge-detection")
@@ -55,6 +56,21 @@ def run_camera(store_cfg, camera_cfg):
         zone_points=camera_cfg.zone_of_interest,
         still_frames_threshold=camera_cfg.hand_still_frames_threshold,
     )
+
+    # Roda em TODO processo de câmera, com ou sem supervisor — diferente
+    # do heartbeat (que é por loja e só roda uma vez quando supervisionado,
+    # ver VIGIA_SUPERVISED acima), a calibração é por câmera e precisa
+    # ser aplicada dentro do processo dono deste `rule` específico (ver
+    # calibration_sync.py pro motivo completo).
+    CalibrationSync(
+        api_base_url=store_cfg.api_base_url,
+        api_key=store_cfg.api_key,
+        store_id=store_cfg.store_id,
+        camera_id=camera_cfg.camera_id,
+        rule=rule,
+        camera_cfg=camera_cfg,
+    ).start()
+
     tracker = IouTracker()
     recorder = ClipRecorder(output_dir="./clips", fps_target=store_cfg.fps_target)
     alert_client = AlertClient(

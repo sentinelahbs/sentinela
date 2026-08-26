@@ -87,6 +87,20 @@ class SuspiciousBehaviorRule:
         reason = "Mão parada dentro da zona de interesse por tempo prolongado"
         return True, round(confidence, 2), reason
 
+    def apply_calibration(self, zone_points: list, still_frames_threshold: int) -> None:
+        """Aplica calibração nova em tempo real, sem recriar o objeto —
+        usado por calibration_sync.py quando o backend manda uma zona ou
+        threshold atualizado, no meio da operação. De propósito NÃO mexe
+        em self.trackers: preserva o estado de rastreamento de quem já
+        está em cena, pra não resetar uma detecção em andamento só
+        porque a calibração mudou.
+
+        Deixa Polygon() estourar pra quem chamou (calibration_sync.py) —
+        aqui é a regra de negócio, não a camada que decide o que fazer
+        com um payload de rede malformado."""
+        self.zone = Polygon(zone_points) if zone_points else None
+        self.still_frames_threshold = still_frames_threshold
+
     def forget(self, person_id: str) -> None:
         """Chamado quando o tracker (ver tracker.py) dá uma pessoa como
         saída de cena — sem isso, self.trackers cresce sem limite pro

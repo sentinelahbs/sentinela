@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy import (
     Column, String, DateTime, ForeignKey, Enum, Float, Text, Boolean, Integer
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
@@ -140,6 +140,15 @@ class Camera(Base):
     store_id = Column(UUID(as_uuid=False), ForeignKey("stores.id"), nullable=False)
     label = Column(String, nullable=False)   # ex: "Câmera 03 — Corredor 2"
     active = Column(Boolean, default=True)
+
+    # Calibração remota (ver calibration_sync.py no módulo de detecção) --
+    # NULL = sem calibração remota definida, a box usa os defaults locais
+    # de config.py. Formato de zone_of_interest: lista de pares [x,y]
+    # normalizados (0-1), mesma convenção do box_config.json.
+    zone_of_interest = Column(JSONB, nullable=True)
+    hand_still_frames_threshold = Column(Integer, nullable=True)
+    min_confidence_to_alert = Column(Float, nullable=True)
+    calibration_updated_at = Column(DateTime, nullable=True)
 
     store = relationship("Store", back_populates="cameras")
 

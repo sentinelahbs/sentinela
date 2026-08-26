@@ -9,6 +9,8 @@ auto-promoção de propósito: você liga ele direto no banco para sua
 própria conta, a primeira vez.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
@@ -19,7 +21,7 @@ from models import (
 )
 from schemas import (
     AdminCompanyOut, AdminCompanyDetailOut, AdminOnboardingOut, OnboardingStatusIn,
-    AdminDeleteCompanyIn,
+    AdminDeleteCompanyIn, CameraOut, CameraCalibrationUpdateIn,
 )
 from auth import get_current_admin, verify_password
 from tenant_context import set_platform_admin_context
@@ -105,6 +107,50 @@ def get_company_detail(
         stores=stores,
         users=[_team_member_out(u) for u in users],
     )
+
+
+@router.get("/stores/{store_id}/cameras", response_model=list[CameraOut])
+def list_store_cameras_admin(
+    store_id: str,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Câmeras de uma loja (com o estado atual de calibração), pro admin
+    ver/editar durante o piloto sem depender do dono da loja logar no
+    dashboard. Usa o mesmo bypass de SELECT que list_companies já usa
+    (cameras_admin_bypass, ver migração 2c999006f372)."""
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if store is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Loja não encontrada")
+    return db.query(Camera).filter(Camera.store_id == store_id, Camera.active.is_(True)).all()
+
+
+@router.patch("/cameras/{camera_id}/calibration", response_model=CameraOut)
+def update_camera_calibration_admin(
+    camera_id: str,
+    payload: CameraCalibrationUpdateIn,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Mesma calibração remota que o dono edita no dashboard (ver
+    update_camera_calibration em routers/cameras.py) — via painel admin,
+    pra você (time VigIA) poder ajustar zona/threshold numa loja piloto
+    remotamente, sem esperar o cliente mexer. Precisou de uma policy de
+    UPDATE nova pro admin em `cameras` (cameras_admin_update, ver
+    migração a3f7c9e21b4d) — só existia SELECT e DELETE até aqui."""
+    camera = db.query(Camera).filter(Camera.id == camera_id, Camera.active.is_(True)).first()
+    if camera is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Câmera não encontrada")
+
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(camera, field, value)
+    camera.calibration_updated_at = datetime.utcnow()
+
+    db.commit()
+    set_platform_admin_context(db)
+    db.refresh(camera)
+    return camera
 
 
 @router.post("/companies/{company_id}/pause", response_model=AdminCompanyDetailOut)

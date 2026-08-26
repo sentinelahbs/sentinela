@@ -208,6 +208,10 @@ class CameraOut(BaseModel):
     store_id: str
     label: str
     active: bool
+    zone_of_interest: Optional[list] = None
+    hand_still_frames_threshold: Optional[int] = None
+    min_confidence_to_alert: Optional[float] = None
+    calibration_updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -215,6 +219,64 @@ class CameraOut(BaseModel):
 
 class CameraCreateIn(BaseModel):
     label: str
+
+
+def _validate_zone_of_interest(value: Optional[list]) -> Optional[list]:
+    # Mesma convenção usada há tempos em config.py (edge-detection):
+    # vazio/None = sem zona configurada, zona vira o quadro inteiro. Um
+    # polígono de verdade precisa de pelo menos 3 pontos, cada um um par
+    # [x, y] normalizado (0-1) -- é isso que vira Polygon() do lado da
+    # box (pose_rules.py); um valor fora desse formato quebraria a
+    # aplicação da calibração no processo de detecção, não só um erro de
+    # UI, por isso a validação aqui é rígida.
+    if value is None or value == []:
+        return value
+    if not isinstance(value, list) or len(value) < 3:
+        raise ValueError("Zona de interesse precisa ter pelo menos 3 pontos, ou ficar vazia")
+    for point in value:
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            raise ValueError("Cada ponto da zona precisa ser um par [x, y]")
+        x, y = point
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not (0 <= x <= 1) or not (0 <= y <= 1):
+            raise ValueError("Coordenadas da zona precisam estar entre 0 e 1")
+    return value
+
+
+class CameraCalibrationOut(BaseModel):
+    """Retorno enxuto pra BOX (GET .../calibration) -- só o que
+    calibration_sync.py precisa pra decidir se mudou algo e aplicar.
+    Não expõe label/active de propósito, pra manter o contrato com a
+    box o mais estreito possível."""
+    camera_id: str
+    zone_of_interest: Optional[list] = None
+    hand_still_frames_threshold: Optional[int] = None
+    min_confidence_to_alert: Optional[float] = None
+    updated_at: Optional[datetime] = None
+
+
+class CameraCalibrationUpdateIn(BaseModel):
+    # Todos opcionais -- PATCH parcial, tanto o dono (dashboard) quanto o
+    # admin (painel interno, durante o piloto) podem mandar só o campo
+    # que estão ajustando.
+    zone_of_interest: Optional[list] = None
+    hand_still_frames_threshold: Optional[int] = None
+    min_confidence_to_alert: Optional[float] = None
+
+    _validate_zone = field_validator("zone_of_interest")(_validate_zone_of_interest)
+
+    @field_validator("hand_still_frames_threshold")
+    @classmethod
+    def _validate_threshold(cls, value):
+        if value is not None and value <= 0:
+            raise ValueError("hand_still_frames_threshold precisa ser maior que zero")
+        return value
+
+    @field_validator("min_confidence_to_alert")
+    @classmethod
+    def _validate_confidence(cls, value):
+        if value is not None and not (0 < value <= 1):
+            raise ValueError("min_confidence_to_alert precisa estar entre 0 (exclusivo) e 1")
+        return value
 
 
 class CameraNeighborOut(BaseModel):

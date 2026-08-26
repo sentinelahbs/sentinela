@@ -15,6 +15,10 @@ import {
   Play,
   Trash2,
   X,
+  Sliders,
+  ChevronDown,
+  ChevronRight,
+  Camera as CameraIcon,
 } from "lucide-react";
 
 // Sem VITE_API_BASE definida (ex: rodando local com `npm run dev`),
@@ -461,6 +465,120 @@ function AccessDenied({ onLogout }) {
   );
 }
 
+// Mesma zona padrão usada do lado da box (edge-detection/config.py,
+// _DEFAULT_ZONE) -- só pra placeholder quando a câmera ainda não tem
+// calibração remota nenhuma (backend manda null nesse caso).
+const DEFAULT_ZONE_OF_INTEREST = [[0.1, 0.35], [0.9, 0.35], [0.9, 0.98], [0.1, 0.98]];
+
+// Editor de calibração remota (zona de interesse + thresholds) — usado
+// aqui no admin pra ajustar câmera de loja piloto remotamente, sem
+// depender do dono logar no próprio dashboard (ver PATCH
+// /v1/admin/cameras/{id}/calibration em routers/admin.py). Mesma lógica
+// e mesmo formato do editor equivalente no dashboard do cliente.
+function CameraCalibrationEditor({ camera, onSave }) {
+  const zonePoints = camera.zone_of_interest && camera.zone_of_interest.length === 4
+    ? camera.zone_of_interest
+    : DEFAULT_ZONE_OF_INTEREST;
+  const [points, setPoints] = useState(zonePoints);
+  const [threshold, setThreshold] = useState(camera.hand_still_frames_threshold ?? 6);
+  const [confidence, setConfidence] = useState(camera.min_confidence_to_alert ?? 0.55);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  function updatePoint(idx, axis, value) {
+    const num = parseFloat(value);
+    setPoints((prev) => prev.map((p, i) => (i === idx ? [axis === "x" ? num : p[0], axis === "y" ? num : p[1]] : p)));
+    setSaved(false);
+  }
+
+  async function handleSave() {
+    if (points.some((p) => p.some((v) => Number.isNaN(v) || v < 0 || v > 1))) {
+      setSaveError("Coordenadas da zona precisam estar entre 0 e 1");
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave({
+        zone_of_interest: points,
+        hand_still_frames_threshold: threshold,
+        min_confidence_to_alert: confidence,
+      });
+      setSaved(true);
+    } catch (err) {
+      setSaveError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ padding: "14px 16px", background: COLORS.bg, borderTop: `1px solid ${COLORS.borderSoft}` }}>
+      <div style={{ fontSize: 11, color: COLORS.textFaint, marginBottom: 10 }}>
+        Zona de interesse (coordenadas normalizadas 0-1)
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+        {points.map((p, i) => (
+          <div key={i} style={{ display: "flex", gap: 4 }}>
+            <input
+              type="number" step="0.01" min="0" max="1"
+              value={p[0]}
+              onChange={(e) => updatePoint(i, "x", e.target.value)}
+              title={`Ponto ${i + 1} — x`}
+              style={{ ...inputStyle, padding: "6px 7px", fontSize: 11.5 }}
+            />
+            <input
+              type="number" step="0.01" min="0" max="1"
+              value={p[1]}
+              onChange={(e) => updatePoint(i, "y", e.target.value)}
+              title={`Ponto ${i + 1} — y`}
+              style={{ ...inputStyle, padding: "6px 7px", fontSize: 11.5 }}
+            />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+        <label style={{ fontSize: 11.5, color: COLORS.textMuted, display: "flex", flexDirection: "column", gap: 4 }}>
+          Frames parada até alertar
+          <input
+            type="number" min="1" step="1"
+            value={threshold}
+            onChange={(e) => { setThreshold(parseInt(e.target.value, 10)); setSaved(false); }}
+            style={{ ...inputStyle, width: 90, padding: "6px 7px", fontSize: 12 }}
+          />
+        </label>
+        <label style={{ fontSize: 11.5, color: COLORS.textMuted, display: "flex", flexDirection: "column", gap: 4 }}>
+          Confiança mínima pra alertar
+          <input
+            type="number" min="0.01" max="1" step="0.01"
+            value={confidence}
+            onChange={(e) => { setConfidence(parseFloat(e.target.value)); setSaved(false); }}
+            style={{ ...inputStyle, width: 90, padding: "6px 7px", fontSize: 12 }}
+          />
+        </label>
+      </div>
+      {saveError && <div style={{ fontSize: 11.5, color: COLORS.red, marginBottom: 8 }}>{saveError}</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          className="lp-btn"
+          onClick={handleSave}
+          disabled={saving}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 7, border: "none", background: COLORS.amber, color: "#1a1200", fontSize: 12, fontWeight: 600 }}
+        >
+          {saving ? <Loader2 size={12} className="lp-spin" /> : saved ? <Check size={12} /> : null}
+          Salvar calibração
+        </button>
+        {camera.calibration_updated_at && (
+          <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>
+            última calibração: {new Date(camera.calibration_updated_at).toLocaleString("pt-BR")}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CompanyDetail({ api, companyId, onBack, onDeleted }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState(null);
@@ -470,6 +588,14 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Calibração remota por loja/câmera (ver item 7 do plano — edição
+  // direta pelo time VigIA numa loja piloto, sem depender do dono
+  // mexer no próprio dashboard).
+  const [expandedStoreId, setExpandedStoreId] = useState(null);
+  const [storeCameras, setStoreCameras] = useState({}); // store_id -> lista de câmeras (cache, evita recarregar toda vez que expande de novo)
+  const [camerasLoading, setCamerasLoading] = useState(null); // store_id sendo carregado no momento, ou null
+  const [expandedCameraId, setExpandedCameraId] = useState(null);
 
   useEffect(() => {
     api(`/v1/admin/companies/${companyId}`)
@@ -512,6 +638,37 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
     setDeleteConfirmText("");
     setDeletePassword("");
     setActionError(null);
+  }
+
+  async function toggleStore(storeId) {
+    if (expandedStoreId === storeId) {
+      setExpandedStoreId(null);
+      return;
+    }
+    setExpandedStoreId(storeId);
+    setExpandedCameraId(null);
+    if (storeCameras[storeId]) return; // já em cache, não recarrega
+    setCamerasLoading(storeId);
+    try {
+      const cameras = await api(`/v1/admin/stores/${storeId}/cameras`);
+      setStoreCameras((prev) => ({ ...prev, [storeId]: cameras }));
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setCamerasLoading(null);
+    }
+  }
+
+  async function saveCameraCalibration(storeId, cameraId, payload) {
+    const updated = await api(`/v1/admin/cameras/${cameraId}/calibration`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    setStoreCameras((prev) => ({
+      ...prev,
+      [storeId]: (prev[storeId] || []).map((c) => (c.id === cameraId ? updated : c)),
+    }));
   }
 
   if (error) return <div style={{ padding: 22, color: COLORS.red, fontSize: 13 }}>{error}</div>;
@@ -640,8 +797,58 @@ function CompanyDetail({ api, companyId, onBack, onDeleted }) {
       <div style={{ border: `1px solid ${COLORS.border}`, borderRadius: 8, overflow: "hidden", marginBottom: 22 }}>
         {detail.stores.length === 0 && <div style={{ padding: 14, fontSize: 12.5, color: COLORS.textFaint }}>Nenhuma loja cadastrada.</div>}
         {detail.stores.map((s, i) => (
-          <div key={s.id} style={{ padding: "10px 14px", borderTop: i === 0 ? "none" : `1px solid ${COLORS.borderSoft}`, fontSize: 13 }}>
-            {s.name} {s.city && <span style={{ color: COLORS.textFaint }}>— {s.city}</span>}
+          <div key={s.id} style={{ borderTop: i === 0 ? "none" : `1px solid ${COLORS.borderSoft}` }}>
+            <button
+              className="lp-btn lp-row"
+              onClick={() => toggleStore(s.id)}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 14px", fontSize: 13, border: "none", background: "transparent", color: COLORS.text, textAlign: "left",
+              }}
+            >
+              <span>{s.name} {s.city && <span style={{ color: COLORS.textFaint }}>— {s.city}</span>}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: COLORS.textFaint }}>
+                <Sliders size={12} />
+                Calibração
+                {expandedStoreId === s.id ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              </span>
+            </button>
+            {expandedStoreId === s.id && (
+              <div style={{ background: COLORS.bg, borderTop: `1px solid ${COLORS.borderSoft}`, padding: "10px 14px" }}>
+                {camerasLoading === s.id && (
+                  <div style={{ fontSize: 12, color: COLORS.textFaint, display: "flex", alignItems: "center", gap: 6 }}>
+                    <Loader2 size={12} className="lp-spin" /> Carregando câmeras…
+                  </div>
+                )}
+                {camerasLoading !== s.id && (storeCameras[s.id] || []).length === 0 && (
+                  <div style={{ fontSize: 12, color: COLORS.textFaint }}>Nenhuma câmera cadastrada nesta loja.</div>
+                )}
+                {(storeCameras[s.id] || []).map((camera) => (
+                  <div key={camera.id} style={{ border: `1px solid ${COLORS.border}`, borderRadius: 8, marginBottom: 8, overflow: "hidden" }}>
+                    <button
+                      className="lp-btn"
+                      onClick={() => setExpandedCameraId((prev) => (prev === camera.id ? null : camera.id))}
+                      style={{
+                        width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "8px 12px", border: "none", background: COLORS.panel, color: COLORS.text, fontSize: 12.5, textAlign: "left",
+                      }}
+                    >
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <CameraIcon size={13} color={COLORS.textFaint} />
+                        {camera.label}
+                      </span>
+                      {expandedCameraId === camera.id ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    </button>
+                    {expandedCameraId === camera.id && (
+                      <CameraCalibrationEditor
+                        camera={camera}
+                        onSave={(payload) => saveCameraCalibration(s.id, camera.id, payload)}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

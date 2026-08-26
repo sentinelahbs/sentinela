@@ -7,7 +7,7 @@ pydantic[email]==2.9.2
 pyjwt==2.13.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
-boto3==1.35.68
+boto3==1.43.78
 requests==2.34.2
 slowapi==0.1.9
 python-multipart==0.0.32

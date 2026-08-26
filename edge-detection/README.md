@@ -29,15 +29,28 @@ supervisor.py         → sobe um processo por câmera e reinicia se algum cair 
 O `detector.py` suporta dois backends, escolhidos pela variável de ambiente
 `DETECTION_BACKEND`:
 
-- **`yolov8`** (padrão) — Ultralytics YOLOv8. **Licença AGPL-3.0**: usar em
-  produto comercial de código fechado exige uma Enterprise License paga da
+- **`yolox`** (padrão) — YOLOX (Megvii), rodando via ONNX Runtime.
+  **Licença Apache 2.0**, sem exigência de licença comercial. É o único
+  backend autorizado para uso comercial enquanto a Enterprise License da
+  Ultralytics não estiver assinada.
+- **`yolov8`** — Ultralytics YOLOv8. **Licença AGPL-3.0**: usar em produto
+  comercial de código fechado exige uma Enterprise License paga da
   Ultralytics.
-- **`yolox`** — YOLOX (Megvii), rodando via ONNX Runtime. **Licença Apache
-  2.0**, sem essa exigência. Use este backend pra testar em loja parceira
-  antes de resolver o licenciamento do YOLOv8.
+
+> ⚠️ **Enquanto a licença Enterprise da Ultralytics não estiver assinada,
+> `yolox` é o único backend autorizado para uso comercial.** Todos os
+> scripts de empacotamento (`build.ps1`, `Configurar.ps1`,
+> `Instalar-Servico.ps1`) fixam `DETECTION_BACKEND=yolox` explicitamente
+> — não dependem só do default do código em `detector.py`. `build.ps1`
+> inclusive falha o build se esse default for revertido para `yolov8` por
+> engano. Trocar para `yolov8` manualmente (setando
+> `DETECTION_BACKEND=yolov8` numa instalação) exige que a licença
+> Enterprise já esteja ativa — não faça isso numa loja de verdade antes
+> disso.
 
 ```bash
-# Windows (PowerShell)
+# Windows (PowerShell) -- yolox já é o default, isso é só se quiser ser
+# explícito ou apontar pra um .onnx em outro caminho
 $env:DETECTION_BACKEND = "yolox"
 $env:DETECTION_MODEL_PATH = "./models/yolox_s.onnx"
 

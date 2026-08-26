@@ -55,6 +55,15 @@ Write-Host "==> Registrando servico '$ServiceName'"
 & $nssm set $ServiceName AppExit Default Restart
 & $nssm set $ServiceName AppRestartDelay 5000
 
+# Backend de deteccao de pessoa: fixado explicitamente em yolox aqui,
+# nao dependendo do default do codigo (detector.py) -- ate a licenca
+# Enterprise da Ultralytics estar assinada, YOLOv8 (AGPL-3.0) nao pode
+# rodar em instalacao de loja. O servico do Windows roda como conta de
+# sistema e NAO herda variaveis de ambiente definidas em outros scripts
+# (ex: Configurar.ps1), entao isso precisa ser setado aqui pra valer de
+# fato no processo supervisionado. Ver README do modulo de deteccao.
+& $nssm set $ServiceName AppEnvironmentExtra "DETECTION_BACKEND=yolox" "DETECTION_MODEL_PATH=./models/yolox_s.onnx"
+
 Write-Host "==> Iniciando servico"
 & $nssm start $ServiceName
 

@@ -8,11 +8,14 @@ que é separada de propósito — assim você consegue ajustar a sensibilidade
 sem precisar retreinar nada.
 
 Backend de detecção de pessoa (escolhido por DETECTION_BACKEND):
-  - "yolov8" (padrão): Ultralytics YOLOv8. Licença AGPL-3.0 — usar em
-    produto comercial de código fechado exige Enterprise License paga.
-  - "yolox": YOLOX (Megvii), rodando via ONNX Runtime. Licença Apache 2.0,
-    sem essa exigência. Usar DETECTION_MODEL_PATH pra apontar pro .onnx
-    baixado das releases oficiais do GitHub.
+  - "yolox" (padrão): YOLOX (Megvii), rodando via ONNX Runtime. Licença
+    Apache 2.0 — sem exigência de licença comercial. Usar
+    DETECTION_MODEL_PATH pra apontar pro .onnx baixado das releases
+    oficiais do GitHub, se não for usar o caminho padrão em models/.
+  - "yolov8": Ultralytics YOLOv8. Licença AGPL-3.0 — usar em produto
+    comercial de código fechado exige Enterprise License paga da
+    Ultralytics. NÃO selecionar este backend em instalação nova até essa
+    licença estar assinada (ver README do módulo).
 """
 
 import os
@@ -22,7 +25,7 @@ import cv2
 import numpy as np
 import mediapipe as mp
 
-DETECTION_BACKEND = os.environ.get("DETECTION_BACKEND", "yolov8").lower()
+DETECTION_BACKEND = os.environ.get("DETECTION_BACKEND", "yolox").lower()
 DETECTION_MODEL_PATH = os.environ.get("DETECTION_MODEL_PATH", "")
 
 # Classe "person" no COCO — dataset usado pra treinar tanto o YOLOv8 quanto o YOLOX.
@@ -167,7 +170,8 @@ class PersonDetectorYoloX:
 
 def build_person_detector(model_path: str = None, person_conf: float = 0.5):
     """Escolhe o backend de detecção de pessoa pela variável de ambiente
-    DETECTION_BACKEND ('yolov8', padrão, ou 'yolox')."""
+    DETECTION_BACKEND ('yolox', padrão até a licença Enterprise da
+    Ultralytics estar assinada, ou 'yolov8')."""
     if DETECTION_BACKEND == "yolox":
         path = model_path or DETECTION_MODEL_PATH or "./models/yolox_s.onnx"
         return PersonDetectorYoloX(path, person_conf=person_conf)

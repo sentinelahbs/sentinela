@@ -16,6 +16,13 @@ Set-Location $PSScriptRoot
 $env:TCL_LIBRARY = Join-Path $PSScriptRoot "python\tcl\tcl8.6"
 $env:TK_LIBRARY = Join-Path $PSScriptRoot "python\tcl\tk8.6"
 
+# Fixado explicitamente aqui tambem (mesmo o assistente hoje nao chamando
+# detector.py) pra manter o mesmo padrao do Instalar-Servico.ps1 e cobrir
+# qualquer uso futuro do detector neste fluxo -- ate a licenca Enterprise
+# da Ultralytics estar assinada, yolox e' o unico backend autorizado pra
+# uso comercial (ver README do modulo).
+$env:DETECTION_BACKEND = "yolox"
+
 & "$PSScriptRoot\python\python.exe" "$PSScriptRoot\setup_wizard.py"
 
 Write-Host ""

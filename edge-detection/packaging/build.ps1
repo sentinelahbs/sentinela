@@ -117,6 +117,21 @@ Copy-Item "$FullPythonDir\tcl\tk8.6" (Join-Path $tclDir "tk8.6") -Recurse
 Write-Host "==> Copiando codigo-fonte do modulo de deteccao"
 Get-ChildItem "$repoRoot\*.py" | Copy-Item -Destination $bundleDir
 
+# Guarda de licenciamento: ate a licenca Enterprise da Ultralytics estar
+# assinada, YOLOv8 (AGPL-3.0) nao pode ser o backend padrao de nenhum
+# pacote que sai daqui -- ver README do modulo. Isso NAO confia so no
+# default de detector.py: confere o arquivo de fato copiado pro bundle,
+# entao mesmo uma reversao acidental desse default e' pega aqui, antes
+# do zip sair da maquina de build.
+Write-Host "==> Conferindo guarda de licenciamento (DETECTION_BACKEND default)"
+$detectorCopy = Join-Path $bundleDir "detector.py"
+if ((Get-Content $detectorCopy -Raw) -notmatch 'DETECTION_BACKEND"\s*,\s*"yolox"') {
+    throw ("detector.py copiado pro bundle nao tem 'yolox' como default de " +
+           "DETECTION_BACKEND -- build abortado pra nao empacotar YOLOv8 " +
+           "(AGPL-3.0) sem a licenca Enterprise da Ultralytics assinada. " +
+           "Ver README do modulo (secao de licenciamento) antes de mudar isso.")
+}
+
 $modelsDir = Join-Path $bundleDir "models"
 New-Item -ItemType Directory -Path $modelsDir -Force | Out-Null
 $onnxModel = "$repoRoot\models\yolox_s.onnx"

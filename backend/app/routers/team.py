@@ -37,6 +37,33 @@ router = APIRouter(prefix="/v1/team", tags=["team"])
 email_client = EmailClient()
 
 INVITE_EXPIRY_DAYS = 7
+# Limite fixo por empresa, não ligado a pacote de câmera nem vendido à
+# parte -- diferente de camera_limit (contratável, ver routers/billing.py),
+# esse aqui não tem como "comprar mais": é um teto simples.
+MAX_MANAGERS_PER_COMPANY = 3
+
+
+def _company_manager_count(db: Session, company_id: str) -> int:
+    """Conta gestores (STORE_MANAGER) ativos + convites ainda pendentes
+    e não expirados -- um convite pendente já reserva a vaga, senão o
+    dono furava o limite mandando vários convites de uma vez sem nenhum
+    ser aceito ainda."""
+    active = (
+        db.query(User)
+        .filter(User.company_id == company_id, User.role == UserRole.STORE_MANAGER)
+        .count()
+    )
+    now = datetime.datetime.utcnow()
+    pending = (
+        db.query(TeamInvite)
+        .filter(
+            TeamInvite.company_id == company_id,
+            TeamInvite.accepted_at.is_(None),
+            TeamInvite.expires_at > now,
+        )
+        .count()
+    )
+    return active + pending
 
 
 def _to_member_out(user: User) -> TeamMemberOut:
@@ -113,6 +140,17 @@ def invite_manager(
     # bootstrap, que enxerga tudo, e não é o que queremos daqui pra frente.
     company_id = user.company_id
     set_company_context(db, company_id)
+
+    # Conta DEPOIS de marcar o convite antigo (se houver) pra deleção --
+    # o autoflush do SQLAlchemy garante que a query abaixo já não conta
+    # com ele, senão reenviar um convite pra alguém que já tem um
+    # pendente esbarraria no limite por engano (não é uma vaga nova).
+    if _company_manager_count(db, company_id) >= MAX_MANAGERS_PER_COMPANY:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Limite de {MAX_MANAGERS_PER_COMPANY} gestores atingido para esta empresa.",
+        )
+
     company = db.query(Company).filter(Company.id == company_id).first()
     company_name = company.name
 

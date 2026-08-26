@@ -17,7 +17,7 @@ import logging
 from config import ACTIVE_STORE
 from capture import RollingCapture
 from detector import PerceptionPipeline, DETECTION_BACKEND
-from pose_rules import SuspiciousBehaviorRule
+from pose_rules import SuspiciousBehaviorRule, HandDisappearanceRule, combine_rule_results
 from tracker import IouTracker
 from appearance import color_signature
 from correlator import LocalCorrelator
@@ -55,6 +55,18 @@ def run_camera(store_cfg, camera_cfg):
     rule = SuspiciousBehaviorRule(
         zone_points=camera_cfg.zone_of_interest,
         still_frames_threshold=camera_cfg.hand_still_frames_threshold,
+    )
+    # Regra complementar (ver pose_rules.py) — mão que desaparece da
+    # visão numa região incomum do corpo, em vez de ficar parada. Reusa
+    # a mesma zona e o mesmo threshold de frames da regra principal, de
+    # propósito (mesmo padrão de debounce já calibrado por câmera, sem
+    # precisar de um número novo). Nota: ainda não recebe atualização de
+    # calibration_sync.py — se a zona/threshold for recalibrado remotamente
+    # em produção, essa regra fica com o valor de quando a câmera iniciou
+    # até o processo reiniciar.
+    disappearance_rule = HandDisappearanceRule(
+        zone_points=camera_cfg.zone_of_interest,
+        missing_frames_threshold=camera_cfg.hand_still_frames_threshold,
     )
 
     # Roda em TODO processo de câmera, com ou sem supervisor — diferente
@@ -110,6 +122,7 @@ def run_camera(store_cfg, camera_cfg):
             for ended in tracker.ended_tracks:
                 ended_id = f"person_{ended.track_id}"
                 rule.forget(ended_id)
+                disappearance_rule.forget(ended_id)
                 last_alert_at.pop(ended_id, None)
                 if DETECTION_DEBUG:
                     log.info(f"debug: {ended_id} saiu de cena (borda_do_quadro={ended.exited_frame_edge})")
@@ -120,15 +133,16 @@ def run_camera(store_cfg, camera_cfg):
                 for track_id, s in zip(track_ids, signals):
                     log.info(
                         f"debug: person_{track_id} conf={s.confidence:.2f} "
-                        f"bbox={s.person_bbox} maos_norm={s.hands_norm}"
+                        f"bbox={s.person_bbox} maos_norm={s.hands_norm} "
+                        f"ombro_y={s.shoulder_y_norm} quadril_y={s.hip_y_norm}"
                     )
 
             for track_id, signal in zip(track_ids, signals):
                 person_id = f"person_{track_id}"
 
-                is_suspicious, confidence, reason = rule.evaluate(
-                    person_id, signal.hands_norm
-                )
+                still_result = rule.evaluate(person_id, signal.hands_norm)
+                disappearance_result = disappearance_rule.evaluate(person_id, signal)
+                is_suspicious, confidence, reason = combine_rule_results(still_result, disappearance_result)
                 if not is_suspicious or confidence < camera_cfg.min_confidence_to_alert:
                     continue
 

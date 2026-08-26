@@ -38,6 +38,14 @@ class PersonSignal:
     hands_px: list               # posições (x, y) em pixels de cada mão detectada
     hands_norm: list             # mesma coisa, normalizado (0-1) — usado nas regras
     confidence: float
+    # Referência vertical do tronco (normalizada 0-1 no frame inteiro,
+    # mesma convenção de hands_norm) — usada pela regra complementar de
+    # desaparecimento (ver HandDisappearanceRule em pose_rules.py) pra
+    # saber se uma mão sumiu numa altura "incomum" do corpo (cintura pra
+    # baixo) ou "normal" (ombro pra cima). None quando ombro/quadril não
+    # está visível com confiança suficiente.
+    shoulder_y_norm: "float | None" = None
+    hip_y_norm: "float | None" = None
 
 
 class PersonDetectorYoloV8:
@@ -192,22 +200,37 @@ class HandPoseEstimator:
             min_tracking_confidence=0.5,
         )
 
-    def estimate_hands(self, frame: np.ndarray, bbox: tuple):
-        # Retorna sempre 2 posições, uma por mão (esquerda, direita), usando
-        # None pra mão não visível — em vez de omitir da lista. Isso importa
-        # porque quem consome isso (pose_rules.py) rastreia cada mão
-        # separadamente ao longo dos frames; se a lista mudasse de tamanho
-        # ou ordem, a mão esquerda de um frame acabava sendo comparada com
-        # a direita do frame anterior, e "parada" nunca acumulava direito.
+    def estimate_pose_signals(self, frame: np.ndarray, bbox: tuple):
+        """Roda o MediaPipe Pose UMA vez pra essa pessoa e extrai tanto as
+        mãos quanto uma referência vertical do tronco (ombro/quadril) —
+        junto de propósito na mesma chamada: MediaPipe já calcula os 33
+        pontos numa única passada, então extrair mais pontos do mesmo
+        resultado não roda a rede de novo, é só ler mais índices do
+        array que já existe. Rodar o Pose duas vezes (uma pra mão, outra
+        pro tronco) dobraria o custo à toa.
+
+        Retorna (hands_px, shoulder_y_norm, hip_y_norm):
+        - hands_px: sempre 2 posições (x, y) em pixels, uma por mão
+          (esquerda, direita), None pra mão não visível — em vez de
+          omitir da lista. Isso importa porque quem consome isso
+          (pose_rules.py) rastreia cada mão separadamente ao longo dos
+          frames; se a lista mudasse de tamanho ou ordem, a mão esquerda
+          de um frame acabava sendo comparada com a direita do frame
+          anterior, e "parada"/"sumiu" nunca acumulava direito.
+        - shoulder_y_norm / hip_y_norm: média dos lados visíveis,
+          normalizado 0-1 no frame INTEIRO (mesma convenção de
+          hands_norm, calculada por PerceptionPipeline.process) — None
+          quando nenhum dos dois lados está visível com confiança
+          suficiente."""
         x1, y1, x2, y2 = bbox
         crop = frame[max(0, y1):y2, max(0, x1):x2]
         if crop.size == 0:
-            return [None, None]
+            return [None, None], None, None
 
         rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
         result = self.pose.process(rgb)
         if not result.pose_landmarks:
-            return [None, None]
+            return [None, None], None, None
 
         h, w = crop.shape[:2]
         landmarks = result.pose_landmarks.landmark
@@ -225,7 +248,35 @@ class HandPoseEstimator:
             px = x1 + int(lm.x * w)
             py = y1 + int(lm.y * h)
             hands.append((px, py))
-        return hands
+
+        frame_h = frame.shape[0]
+        shoulder_y_norm = self._average_landmark_y(
+            landmarks,
+            [mp.solutions.pose.PoseLandmark.LEFT_SHOULDER, mp.solutions.pose.PoseLandmark.RIGHT_SHOULDER],
+            y1, h, frame_h,
+        )
+        hip_y_norm = self._average_landmark_y(
+            landmarks,
+            [mp.solutions.pose.PoseLandmark.LEFT_HIP, mp.solutions.pose.PoseLandmark.RIGHT_HIP],
+            y1, h, frame_h,
+        )
+        return hands, shoulder_y_norm, hip_y_norm
+
+    @staticmethod
+    def _average_landmark_y(landmarks, landmark_ids, crop_y1: int, crop_h: int, frame_h: int):
+        """Média da posição Y (normalizada 0-1 no frame inteiro) dos
+        pontos visíveis dentre os informados — usa a média de esquerdo+
+        direito quando os dois estão visíveis, ou só um se o outro
+        estiver fora do enquadramento/oculto (mais robusto que exigir os
+        dois ao mesmo tempo, especialmente em ângulo de CFTV onde um
+        lado do corpo fica mais escondido que o outro). None se nenhum
+        dos dois estiver visível com confiança suficiente."""
+        ys = [
+            (crop_y1 + landmarks[lid].y * crop_h) / frame_h
+            for lid in landmark_ids
+            if landmarks[lid].visibility >= 0.5
+        ]
+        return sum(ys) / len(ys) if ys else None
 
     def close(self):
         self.pose.close()
@@ -242,7 +293,7 @@ class PerceptionPipeline:
     def process(self, frame: np.ndarray):
         signals = []
         for bbox, conf in self.person_detector.detect_people(frame):
-            hands_px = self.pose_estimator.estimate_hands(frame, bbox)
+            hands_px, shoulder_y_norm, hip_y_norm = self.pose_estimator.estimate_pose_signals(frame, bbox)
             hands_norm = [
                 (h[0] / self.frame_w, h[1] / self.frame_h) if h is not None else None
                 for h in hands_px
@@ -253,6 +304,8 @@ class PerceptionPipeline:
                     hands_px=hands_px,
                     hands_norm=hands_norm,
                     confidence=conf,
+                    shoulder_y_norm=shoulder_y_norm,
+                    hip_y_norm=hip_y_norm,
                 )
             )
         return signals

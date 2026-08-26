@@ -36,14 +36,19 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Company, Camera, Store, UserRole, PrepaidCheckout
-from schemas import SubscribeIn, SubscribeOut, BillingStatusOut
-from auth import get_current_user
+from models import User, Company, Camera, Store, UserRole, PrepaidCheckout, PendingStorePurchase
+from schemas import (
+    SubscribeIn, SubscribeOut, BillingStatusOut,
+    PrepaidPixIn, PrepaidPixOut, PrepaidPixStatusOut,
+    StorePurchaseIn, StorePurchaseOut, StorePurchaseStatusOut, StoreCreateOut,
+)
+from auth import get_current_user, hash_edge_api_key
 from asaas_client import AsaasClient
 from rate_limit import limiter, get_client_ip
 from tenant_context import (
     set_company_context, set_billing_lookup, set_customer_lookup,
     set_prepaid_checkout_token_lookup, set_prepaid_checkout_id_lookup,
+    set_prepaid_payment_id_lookup, set_store_purchase_payment_lookup,
 )
 
 router = APIRouter(prefix="/v1/billing", tags=["billing"])
@@ -230,6 +235,119 @@ def billing_status(user: User = Depends(get_current_user), db: Session = Depends
     )
 
 
+# --- Loja adicional (empresa JÁ existente comprando mais uma loja) -------
+#
+# Cada loja além da primeira custa PRICE_PER_PACKAGE (mesmo valor de um
+# pacote de câmera, sem relação nenhuma com limite de câmera) — a Store
+# de verdade e a edge_api_key só nascem depois que o Asaas confirma o
+# pagamento (webhook), nunca no momento desta chamada. Ver
+# PendingStorePurchase em models.py.
+
+@router.post("/store-purchase", response_model=StorePurchaseOut)
+def purchase_store(
+    payload: StorePurchaseIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user.role != UserRole.OWNER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas o dono da conta pode adicionar lojas")
+
+    company = db.query(Company).filter(Company.id == user.company_id).first()
+    company_id = company.id
+    company_name = company.name
+    asaas_customer_id = company.asaas_customer_id
+
+    if not asaas_customer_id:
+        if not payload.cpf_cnpj:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Informe o CPF/CNPJ do responsável para gerar a primeira cobrança desta empresa.",
+            )
+        customer = asaas.create_customer(
+            name=company_name, email=user.email, cpf_cnpj=payload.cpf_cnpj, external_reference=company_id,
+        )
+        asaas_customer_id = customer["id"]
+        company.asaas_customer_id = asaas_customer_id
+        db.commit()
+        set_company_context(db, company_id)
+
+    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+    payment = asaas.create_payment(
+        customer_id=asaas_customer_id,
+        value=PRICE_PER_PACKAGE,
+        description=f"VigIA — loja adicional ({payload.name}) — {company_name}",
+        due_date=tomorrow,
+    )
+
+    pending = PendingStorePurchase(
+        company_id=company_id, name=payload.name, city=payload.city,
+        asaas_payment_id=payment["id"], status="pending",
+    )
+    db.add(pending)
+    db.commit()
+    set_company_context(db, company_id)
+    db.refresh(pending)
+
+    qr = _get_pix_qr_code_or_none(payment["id"])
+    return StorePurchaseOut(
+        id=pending.id,
+        monthly_value=PRICE_PER_PACKAGE,
+        pix_qr_code_image=qr.get("encodedImage") if qr else None,
+        pix_copy_paste=qr.get("payload") if qr else None,
+        pix_expiration=qr.get("expirationDate") if qr else None,
+    )
+
+
+@router.get("/store-purchase/{purchase_id}/status", response_model=StorePurchaseStatusOut)
+def store_purchase_status(
+    purchase_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Valor puro capturado antes de qualquer commit -- depois de um
+    # commit() o SQLAlchemy expira os atributos de TODOS os objetos da
+    # sessão (inclusive `user`), e o SET LOCAL que libera o RLS também é
+    # resetado; reler user.company_id nesse ponto exigiria uma consulta
+    # que o RLS ainda não liberaria.
+    company_id = user.company_id
+
+    pending = db.query(PendingStorePurchase).filter(
+        PendingStorePurchase.id == purchase_id, PendingStorePurchase.company_id == company_id,
+    ).first()
+    if pending is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Compra não encontrada")
+
+    if pending.status != "paid":
+        return StorePurchaseStatusOut(status=pending.status)
+
+    # Primeira consulta depois de "paid": cria a Store de verdade agora
+    # (não no webhook) — só existe uma sessão autenticada do dono nesse
+    # momento pra receber a edge_api_key em texto puro com segurança, e
+    # ela só é mostrada esta única vez (mesmo princípio de create_store).
+    pending_name = pending.name
+    pending_city = pending.city
+
+    plaintext_key = secrets.token_urlsafe(32)
+    store = Store(
+        company_id=company_id, name=pending_name, city=pending_city,
+        edge_api_key_hash=hash_edge_api_key(plaintext_key),
+    )
+    db.add(store)
+    pending.status = "claimed"
+    db.commit()
+    set_company_context(db, company_id)
+    db.refresh(store)
+    store_id = store.id
+
+    pending.created_store_id = store_id
+    db.commit()
+
+    return StorePurchaseStatusOut(
+        status="claimed",
+        store=StoreCreateOut(id=store_id, name=pending_name, city=pending_city, edge_api_key=plaintext_key),
+    )
+
+
 # --- Aquisição por link de marketing (paga ANTES de existir conta) -------
 #
 # Diferente de /subscribe (exige login — é pra quem já tem conta VigIA
@@ -279,15 +397,86 @@ def create_prepaid_checkout(request: Request, packages: int = 1, db: Session = D
     return RedirectResponse(checkout["link"], status_code=status.HTTP_302_FOUND)
 
 
+# --- Pix inline no próprio cadastro (paga sem sair da tela) --------------
+#
+# Mesmo princípio do Checkout hospedado acima (paga ANTES de existir
+# conta), mas sem redirecionar pra fora do app: o QR Code/copia-e-cola
+# aparece na própria tela de cadastro (ver OnboardingScreen no
+# dashboard). Diferente do Checkout, aqui SOMOS nós que chamamos
+# create_customer — por isso pede nome/email/CPF-CNPJ, que o Checkout
+# hospedado deixa o próprio Asaas coletar.
+
+@router.post("/prepaid-pix", response_model=PrepaidPixOut)
+@limiter.limit("10/minute")
+def create_prepaid_pix(request: Request, payload: PrepaidPixIn, db: Session = Depends(get_db)):
+    if payload.camera_packages < 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Escolha ao menos 1 pacote de câmeras")
+
+    monthly_value = payload.camera_packages * PRICE_PER_PACKAGE
+    claim_token = secrets.token_urlsafe(32)
+
+    # external_reference aqui identifica o RESPONSÁVEL que está se
+    # cadastrando, não uma empresa (ainda não existe nenhuma) — usamos o
+    # próprio claim_token, mesmo valor que vai autenticar o claim depois.
+    customer = asaas.create_customer(
+        name=payload.owner_name, email=payload.email, cpf_cnpj=payload.cpf_cnpj,
+        external_reference=claim_token,
+    )
+    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+    payment = asaas.create_payment(
+        customer_id=customer["id"],
+        value=monthly_value,
+        description=f"VigIA — {payload.camera_packages} pacote(s) de {CAMERAS_PER_PACKAGE} câmeras — primeira mensalidade",
+        due_date=tomorrow,
+    )
+
+    prepaid = PrepaidCheckout(
+        asaas_payment_id=payment["id"],
+        claim_token=claim_token,
+        camera_packages=payload.camera_packages,
+        monthly_value=monthly_value,
+        status="pending",
+        asaas_customer_id=customer["id"],
+    )
+    db.add(prepaid)
+    db.commit()
+
+    qr = _get_pix_qr_code_or_none(payment["id"])
+    return PrepaidPixOut(
+        claim_token=claim_token,
+        monthly_value=monthly_value,
+        pix_qr_code_image=qr.get("encodedImage") if qr else None,
+        pix_copy_paste=qr.get("payload") if qr else None,
+        pix_expiration=qr.get("expirationDate") if qr else None,
+    )
+
+
+@router.get("/prepaid-pix/{claim_token}/status", response_model=PrepaidPixStatusOut)
+@limiter.limit("30/minute")
+def prepaid_pix_status(request: Request, claim_token: str, db: Session = Depends(get_db)):
+    # Posse do token é a credencial — quem chama ainda não tem conta
+    # nenhuma pra autenticar contra (mesmo princípio de set_invite_lookup).
+    set_prepaid_checkout_token_lookup(db, claim_token)
+    prepaid = db.query(PrepaidCheckout).filter(PrepaidCheckout.claim_token == claim_token).first()
+    if prepaid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cobrança não encontrada")
+    return PrepaidPixStatusOut(status=prepaid.status)
+
+
 def _mark_prepaid_paid(prepaid: PrepaidCheckout, db: Session) -> None:
     if prepaid.status != "pending":
         return
-    # Não confiamos em customer_id vindo do próprio payload do webhook
-    # (formato não documentado com certeza pelo Asaas) — a fonte de
-    # verdade é o pagamento real gerado pelo checkout.
-    payments = asaas.get_payments_for_checkout(prepaid.asaas_checkout_id)
-    if payments:
-        prepaid.asaas_customer_id = payments[0].get("customer")
+    # Origem por Checkout hospedado: só descobrimos o customer_id agora,
+    # a partir do pagamento real gerado pelo checkout -- não confiamos em
+    # customer_id vindo do próprio payload do webhook (formato não
+    # documentado com certeza pelo Asaas).
+    if prepaid.asaas_checkout_id and not prepaid.asaas_customer_id:
+        payments = asaas.get_payments_for_checkout(prepaid.asaas_checkout_id)
+        if payments:
+            prepaid.asaas_customer_id = payments[0].get("customer")
+    # Origem por Pix inline (create_payment): asaas_customer_id já foi
+    # setado na criação, porque fomos nós mesmos que chamamos
+    # create_customer — nada a descobrir aqui.
     prepaid.status = "paid"
     prepaid.paid_at = datetime.datetime.utcnow()
 
@@ -356,6 +545,7 @@ async def asaas_webhook(
     subscription_id = payment.get("subscription")
     customer_id = payment.get("customer")
     checkout_session_id = payment.get("checkoutSession")
+    payment_id = payment.get("id")
 
     if not subscription_id and not customer_id and not checkout_session_id:
         return {"received": True}  # evento sem nada pra cruzar com uma empresa, ignora
@@ -384,15 +574,43 @@ async def asaas_webhook(
         # manda PAYMENT_CONFIRMED/PAYMENT_RECEIVED pra esse tipo de
         # cobrança (DETACHED) — não CHECKOUT_PAID — por isso tratamos
         # aqui também, cruzando pelo checkoutSession do pagamento.
-        if checkout_session_id and event in ("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"):
-            set_prepaid_checkout_id_lookup(db, checkout_session_id)
-            prepaid = db.query(PrepaidCheckout).filter(
-                PrepaidCheckout.asaas_checkout_id == checkout_session_id
-            ).first()
+        if event in ("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"):
+            prepaid = None
+            if checkout_session_id:
+                set_prepaid_checkout_id_lookup(db, checkout_session_id)
+                prepaid = db.query(PrepaidCheckout).filter(
+                    PrepaidCheckout.asaas_checkout_id == checkout_session_id
+                ).first()
+            if prepaid is None and payment_id:
+                # Fluxo Pix inline (create_prepaid_pix, sem checkoutSession
+                # nenhum) — cruza direto pelo id do pagamento avulso.
+                set_prepaid_payment_id_lookup(db, payment_id)
+                prepaid = db.query(PrepaidCheckout).filter(
+                    PrepaidCheckout.asaas_payment_id == payment_id
+                ).first()
             if prepaid is not None:
                 _mark_prepaid_paid(prepaid, db)
                 db.commit()
         return {"received": True}  # assinatura/cliente de outro ambiente, ignora
+
+    # Loja adicional comprada por uma empresa já existente (ver
+    # purchase_store acima) — o pagamento é avulso, vinculado ao mesmo
+    # asaas_customer_id da empresa, então `company` já resolveu acima.
+    # Precisa ser checado ANTES do bloco de câmera abaixo: é o mesmo tipo
+    # de evento (PAYMENT_CONFIRMED/RECEIVED), mas não deve mexer em
+    # camera_limit nem subscription_status — só destrava a criação da loja.
+    if payment_id and event in ("PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"):
+        set_store_purchase_payment_lookup(db, payment_id)
+        store_purchase = db.query(PendingStorePurchase).filter(
+            PendingStorePurchase.asaas_payment_id == payment_id,
+            PendingStorePurchase.company_id == company.id,
+        ).first()
+        if store_purchase is not None:
+            if store_purchase.status == "pending":
+                store_purchase.status = "paid"
+                store_purchase.paid_at = datetime.datetime.utcnow()
+                db.commit()
+            return {"received": True}
 
     # Mapeamento dos eventos de cobrança do Asaas para o status que o
     # VigIA usa internamente. A lista completa de eventos está na

@@ -255,32 +255,72 @@ class PasswordResetToken(Base):
 
 
 class PrepaidCheckout(Base):
-    """Sessão de Checkout do Asaas criada ANTES de existir empresa/usuário
-    — fluxo de aquisição por link de marketing: o prospect paga primeiro,
-    só depois cria a conta (ver GET /v1/billing/prepaid-checkout e o
-    campo prepaid_token em SignupIn). Não pertence a nenhuma empresa até
-    ser reivindicado no cadastro (claimed_company_id), por isso não tem
-    company_id — mesmo princípio do TeamInvite/PasswordResetToken: posse
-    do claim_token é a credencial."""
+    """Sessão de pagamento criada ANTES de existir empresa/usuário — o
+    prospect paga primeiro, só depois cria a conta (ver prepaid_token em
+    SignupIn). Não pertence a nenhuma empresa até ser reivindicado no
+    cadastro (claimed_company_id), por isso não tem company_id — mesmo
+    princípio do TeamInvite/PasswordResetToken: posse do claim_token é a
+    credencial.
+
+    Duas origens possíveis pro pagamento, mutuamente exclusivas (exatamente
+    uma das duas fica preenchida):
+      - asaas_checkout_id: Checkout hospedado pelo Asaas (fluxo de link de
+        marketing, GET /v1/billing/prepaid-checkout) -- Asaas coleta nome/
+        email/CPF na própria página dele, só recebemos o customer_id depois.
+      - asaas_payment_id: cobrança Pix avulsa criada por nós mesmos (fluxo
+        inline dentro do próprio cadastro, POST /v1/billing/prepaid-pix) --
+        aqui SOMOS nós que chamamos create_customer, então já sabemos
+        asaas_customer_id desde a criação, sem precisar descobrir depois.
+    """
     __tablename__ = "prepaid_checkouts"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    asaas_checkout_id = Column(String, nullable=False, unique=True)
+    asaas_checkout_id = Column(String, nullable=True, unique=True)
+    asaas_payment_id = Column(String, nullable=True, unique=True)
     claim_token = Column(String, nullable=False, unique=True)
     camera_packages = Column(Integer, nullable=False)
     monthly_value = Column(Float, nullable=False)
-    # pending -> paid (webhook CHECKOUT_PAID) -> claimed (cadastro usou o
-    # token) | canceled | expired
+    # pending -> paid (webhook CHECKOUT_PAID ou PAYMENT_CONFIRMED/RECEIVED,
+    # dependendo da origem) -> claimed (cadastro usou o token) | canceled | expired
     status = Column(String, nullable=False, default="pending")
-    # Preenchidos pelo webhook, a partir do pagamento real gerado pelo
-    # checkout (ver AsaasClient.get_payments_for_checkout) — não confiamos
-    # em campo de payload do webhook não documentado com certeza pelo Asaas.
+    # No fluxo de checkout hospedado, só descoberto depois do pagamento
+    # (ver AsaasClient.get_payments_for_checkout). No fluxo Pix inline, já
+    # vem preenchido na criação (nós mesmos chamamos create_customer).
     asaas_customer_id = Column(String, nullable=True)
     asaas_subscription_id = Column(String, nullable=True)
     paid_at = Column(DateTime, nullable=True)
     claimed_at = Column(DateTime, nullable=True)
     claimed_company_id = Column(UUID(as_uuid=False), ForeignKey("companies.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PendingStorePurchase(Base):
+    """Loja adicional comprada por uma empresa JÁ existente (dono já
+    logado, dashboard -> "Adicionar loja") — cada loja além da primeira é
+    um pagamento avulso separado de PRICE_PER_PACKAGE (ver routers/
+    billing.py), mesmo preço de um pacote de câmera, mas sem relação com
+    limite de câmera nenhum.
+
+    Mesmo princípio do PrepaidCheckout: nome/cidade digitados ficam
+    guardados aqui até o pagamento confirmar (webhook) -- a Store de
+    verdade (e a edge_api_key) só nascem depois, na primeira consulta de
+    status autenticada depois da confirmação (ver store_purchase_status
+    em routers/billing.py) -- é ali, não no webhook, que a api key em
+    texto puro é gerada e devolvida, porque só existe uma sessão
+    autenticada do dono nesse momento pra recebê-la com segurança."""
+    __tablename__ = "pending_store_purchases"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    company_id = Column(UUID(as_uuid=False), ForeignKey("companies.id"), nullable=False)
+    name = Column(String, nullable=False)
+    city = Column(String, nullable=True)
+    asaas_payment_id = Column(String, nullable=False, unique=True)
+    # pending -> paid (webhook) -> claimed (store_purchase_status criou a
+    # Store e devolveu a chave) | canceled | expired
+    status = Column(String, nullable=False, default="pending")
+    created_store_id = Column(UUID(as_uuid=False), ForeignKey("stores.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    paid_at = Column(DateTime, nullable=True)
 
 
 class Alert(Base):

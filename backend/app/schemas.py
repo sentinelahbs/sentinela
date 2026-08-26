@@ -343,3 +343,50 @@ class BillingStatusOut(BaseModel):
     subscription_status: str
     camera_limit: int
     cameras_used: int
+
+
+class PrepaidPixIn(BaseModel):
+    # Coletado ANTES do nome do negócio/loja de propósito (ver POST
+    # /v1/billing/prepaid-pix) -- é o mínimo que o Asaas exige pra criar
+    # um cliente e gerar uma cobrança Pix (create_customer), então tem
+    # que vir primeiro nessa variante inline (diferente do Checkout
+    # hospedado, onde é o próprio Asaas que coleta isso na página dele).
+    owner_name: str
+    email: EmailStr
+    cpf_cnpj: str
+    camera_packages: int
+
+    _normalize_email = field_validator("email")(_normalize_email)
+
+
+class PrepaidPixOut(BaseModel):
+    claim_token: str
+    monthly_value: float
+    pix_qr_code_image: str | None = None
+    pix_copy_paste: str | None = None
+    pix_expiration: str | None = None
+
+
+class PrepaidPixStatusOut(BaseModel):
+    status: str  # pending | paid | claimed | canceled | expired
+
+
+class StorePurchaseIn(BaseModel):
+    name: str
+    city: Optional[str] = None
+    # Só é exigido se a empresa ainda não tem asaas_customer_id (nunca
+    # assinou antes) -- ver purchase_store em routers/billing.py.
+    cpf_cnpj: Optional[str] = None
+
+
+class StorePurchaseOut(BaseModel):
+    id: str  # id do PendingStorePurchase, usado pro polling de status
+    monthly_value: float
+    pix_qr_code_image: str | None = None
+    pix_copy_paste: str | None = None
+    pix_expiration: str | None = None
+
+
+class StorePurchaseStatusOut(BaseModel):
+    status: str  # pending | paid | claimed
+    store: Optional[StoreCreateOut] = None  # só vem preenchido na PRIMEIRA consulta depois de "paid" -- a chave é mostrada uma única vez

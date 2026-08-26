@@ -120,6 +120,94 @@ const inputStyle = {
   transition: "border-color .15s ease",
 };
 
+// 27 UFs — lista fixa (não muda), então nem precisa de API pra isso.
+const BRAZIL_STATES = [
+  { uf: "AC", name: "Acre" }, { uf: "AL", name: "Alagoas" }, { uf: "AP", name: "Amapá" },
+  { uf: "AM", name: "Amazonas" }, { uf: "BA", name: "Bahia" }, { uf: "CE", name: "Ceará" },
+  { uf: "DF", name: "Distrito Federal" }, { uf: "ES", name: "Espírito Santo" }, { uf: "GO", name: "Goiás" },
+  { uf: "MA", name: "Maranhão" }, { uf: "MT", name: "Mato Grosso" }, { uf: "MS", name: "Mato Grosso do Sul" },
+  { uf: "MG", name: "Minas Gerais" }, { uf: "PA", name: "Pará" }, { uf: "PB", name: "Paraíba" },
+  { uf: "PR", name: "Paraná" }, { uf: "PE", name: "Pernambuco" }, { uf: "PI", name: "Piauí" },
+  { uf: "RJ", name: "Rio de Janeiro" }, { uf: "RN", name: "Rio Grande do Norte" }, { uf: "RS", name: "Rio Grande do Sul" },
+  { uf: "RO", name: "Rondônia" }, { uf: "RR", name: "Roraima" }, { uf: "SC", name: "Santa Catarina" },
+  { uf: "SP", name: "São Paulo" }, { uf: "SE", name: "Sergipe" }, { uf: "TO", name: "Tocantins" },
+];
+
+// Cache simples em memória (não precisa buscar de novo se o usuário
+// trocar de estado e voltar, ou se o form abrir mais de uma vez na
+// mesma sessão) -- fora do componente de propósito, sobrevive a re-render.
+const _cityCache = {};
+
+// Estado -> cidade, usando a API pública do IBGE (sem chave, sem custo,
+// é a fonte oficial de municípios do Brasil) em vez de bundlar uma lista
+// estática de ~5600 cidades no app. value/onChange usam string simples
+// "Cidade, UF" (mesmo formato já usado nos placeholders desta tela) --
+// não é um objeto nem um evento sintético, pra ficar simples de plugar
+// em qualquer state setter direto.
+function CitySelect({ value, onChange }) {
+  const [initialCity, initialUf] = (value || "").split(",").map((s) => s.trim());
+  const [uf, setUf] = useState(BRAZIL_STATES.some((s) => s.uf === initialUf) ? initialUf : "");
+  const [cities, setCities] = useState([]);
+  const [loadingCities, setLoadingCities] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
+
+  useEffect(() => {
+    if (!uf) {
+      setCities([]);
+      return;
+    }
+    if (_cityCache[uf]) {
+      setCities(_cityCache[uf]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingCities(true);
+    setFetchError(false);
+    fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`)
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) => {
+        if (cancelled) return;
+        const names = data.map((c) => c.nome).sort((a, b) => a.localeCompare(b, "pt-BR"));
+        _cityCache[uf] = names;
+        setCities(names);
+      })
+      .catch(() => { if (!cancelled) setFetchError(true); })
+      .finally(() => { if (!cancelled) setLoadingCities(false); });
+    return () => { cancelled = true; };
+  }, [uf]);
+
+  function handleUfChange(newUf) {
+    setUf(newUf);
+    onChange(""); // troca de estado invalida a cidade escolhida antes
+  }
+
+  function handleCityChange(cityName) {
+    onChange(cityName ? `${cityName}, ${uf}` : "");
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <select value={uf} onChange={(e) => handleUfChange(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+        <option value="">Estado</option>
+        {BRAZIL_STATES.map((s) => (
+          <option key={s.uf} value={s.uf}>{s.uf}</option>
+        ))}
+      </select>
+      <select
+        value={initialCity && uf === initialUf ? initialCity : ""}
+        onChange={(e) => handleCityChange(e.target.value)}
+        disabled={!uf || loadingCities}
+        style={{ ...inputStyle, flex: 2, opacity: !uf || loadingCities ? 0.6 : 1 }}
+      >
+        <option value="">{loadingCities ? "Carregando…" : fetchError ? "Falha ao carregar" : "Cidade"}</option>
+        {cities.map((name) => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function Field({ label, type, ...props }) {
   const [visible, setVisible] = useState(false);
   const isPassword = type === "password";
@@ -465,16 +553,27 @@ function ResetPasswordScreen({ token, onReset }) {
 // --- ONBOARDING / SIGNUP -----------------------------------------------
 
 function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
-  const [step, setStep] = useState(1); // 1: empresa+loja, 2: conta do responsável, 3: sucesso
+  // Quem já vem de um link pago (Checkout hospedado, prepaidToken na URL)
+  // pula direto pros dados do negócio -- pagamento já está resolvido.
+  // Cadastro direto (sem link) passa primeiro pela cobrança Pix inline,
+  // ANTES até do nome do negócio, pra não gerar loja/chave sem pagar.
+  const cameFromInlinePix = !prepaidToken;
+  // fases: payment (só se cameFromInlinePix) -> paying (só se cameFromInlinePix)
+  // -> business -> account -> success
+  const [phase, setPhase] = useState(cameFromInlinePix ? "payment" : "business");
   const [form, setForm] = useState({
+    owner_name: "",
+    email: "",
+    cpf_cnpj: "",
+    camera_packages: 1,
     company_name: "",
     store_name: "",
     store_city: "",
-    owner_name: "",
-    email: "",
     password: "",
   });
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [claimToken, setClaimToken] = useState(prepaidToken || null);
+  const [purchase, setPurchase] = useState(null); // { pix_qr_code_image, pix_copy_paste }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null); // { store_id, store_edge_api_key }
@@ -485,9 +584,39 @@ function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
   }
 
-  function goNext(e) {
+  async function handlePayment(e) {
     e.preventDefault();
-    setStep(2);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/v1/billing/prepaid-pix`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner_name: form.owner_name,
+          email: form.email,
+          cpf_cnpj: form.cpf_cnpj.replace(/\D/g, ""),
+          camera_packages: form.camera_packages,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || "Não foi possível gerar a cobrança Pix");
+      }
+      const data = await res.json();
+      setClaimToken(data.claim_token);
+      setPurchase(data);
+      setPhase("paying");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function goToAccount(e) {
+    e.preventDefault();
+    setPhase("account");
   }
 
   async function handleSubmit(e) {
@@ -503,7 +632,16 @@ function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-        body: JSON.stringify({ ...form, turnstile_token: turnstileToken, prepaid_token: prepaidToken || undefined }),
+        body: JSON.stringify({
+          company_name: form.company_name,
+          store_name: form.store_name,
+          store_city: form.store_city,
+          owner_name: form.owner_name,
+          email: form.email,
+          password: form.password,
+          turnstile_token: turnstileToken,
+          prepaid_token: claimToken || undefined,
+        }),
       });
       if (!res.ok) {
         if (res.status === 429) {
@@ -514,7 +652,7 @@ function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
       }
       const data = await res.json();
       setResult(data);
-      setStep(3);
+      setPhase("success");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -528,8 +666,8 @@ function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
     setTimeout(() => setCopied(false), 1500);
   }
 
-  // --- passo 3: sucesso, mostra a API key da box de detecção -----------
-  if (step === 3 && result) {
+  // --- fase final: sucesso, mostra a API key da box de detecção --------
+  if (phase === "success" && result) {
     return (
       <AuthShell width={380}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -591,23 +729,31 @@ function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
     );
   }
 
+  // Passo numérico só pra desenhar a barra de progresso — quem veio de
+  // link pago pula a etapa de pagamento (2 passos); cadastro direto tem
+  // um passo a mais na frente (3 passos).
+  const totalSteps = cameFromInlinePix ? 3 : 2;
+  const stepNumber = cameFromInlinePix
+    ? (phase === "payment" || phase === "paying" ? 1 : phase === "business" ? 2 : 3)
+    : (phase === "business" ? 1 : 2);
+
   return (
     <AuthShell width={340}>
       <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-        {[1, 2].map((n) => (
+        {Array.from({ length: totalSteps }, (_, i) => i + 1).map((n) => (
           <div
             key={n}
             style={{
               flex: 1,
               height: 3,
               borderRadius: 2,
-              background: step >= n ? COLORS.amber : COLORS.border,
+              background: stepNumber >= n ? COLORS.amber : COLORS.border,
             }}
           />
         ))}
       </div>
 
-      {prepaidToken && (
+      {claimToken && (phase === "business" || phase === "account") && (
         <div
           style={{
             display: "flex", alignItems: "center", gap: 8,
@@ -616,16 +762,75 @@ function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
           }}
         >
           <Check size={14} color={COLORS.teal} />
-          <span>Pagamento confirmado! Falta só criar sua conta.</span>
+          <span>Pagamento confirmado! Falta só os dados do negócio.</span>
         </div>
       )}
 
-      {step === 1 && (
-        <form onSubmit={goNext}>
+      {phase === "payment" && (
+        <form onSubmit={handlePayment}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Vamos começar pelo pagamento</div>
+          <p style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 0, marginBottom: 14 }}>
+            Pra evitar cadastro sem contrato — a empresa e a loja só são criadas depois do Pix confirmado.
+          </p>
+          <Field label="Seu nome" required autoFocus value={form.owner_name} onChange={update("owner_name")} placeholder="Ex: Maria Souza" />
+          <Field label="Email" type="email" required value={form.email} onChange={update("email")} />
+          <Field label="CPF ou CNPJ" required value={form.cpf_cnpj} onChange={update("cpf_cnpj")} placeholder="Só números" />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 5 }}>
+              Pacotes ({CAMERAS_PER_PACKAGE} câmeras cada)
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                type="button"
+                className="lp-btn"
+                onClick={() => setForm((f) => ({ ...f, camera_packages: Math.max(1, f.camera_packages - 1) }))}
+                style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${COLORS.border}`, background: COLORS.panelAlt, color: COLORS.text, fontSize: 16, lineHeight: 1 }}
+              >
+                −
+              </button>
+              <div style={{ flex: 1, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{form.camera_packages}</div>
+              <button
+                type="button"
+                className="lp-btn"
+                onClick={() => setForm((f) => ({ ...f, camera_packages: f.camera_packages + 1 }))}
+                style={{ width: 32, height: 32, borderRadius: 7, border: `1px solid ${COLORS.border}`, background: COLORS.panelAlt, color: COLORS.text, fontSize: 16, lineHeight: 1 }}
+              >
+                +
+              </button>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: COLORS.panelAlt, borderRadius: 7, marginBottom: 14, fontSize: 13 }}>
+            <span style={{ color: COLORS.textMuted }}>{form.camera_packages * CAMERAS_PER_PACKAGE} câmeras</span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>R$ {(form.camera_packages * PRICE_PER_PACKAGE).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mês</span>
+          </div>
+          <ErrorNote message={error} />
+          <PrimaryButton type="submit" loading={loading}>
+            Gerar cobrança Pix
+            <ArrowRight size={14} />
+          </PrimaryButton>
+        </form>
+      )}
+
+      {phase === "paying" && purchase && (
+        <PixPaymentPanel
+          pixQrCodeImage={purchase.pix_qr_code_image}
+          pixCopyPaste={purchase.pix_copy_paste}
+          checkStatus={() => fetch(`${API_BASE}/v1/billing/prepaid-pix/${claimToken}/status`).then((r) => r.json())}
+          isConfirmed={(r) => r.status === "paid"}
+          onConfirmed={() => setPhase("business")}
+          footerNote="Depois do Pix confirmado, é só preencher os dados do negócio e criar sua conta."
+        />
+      )}
+
+      {phase === "business" && (
+        <form onSubmit={goToAccount}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Sobre o seu negócio</div>
           <Field label="Nome da empresa" required value={form.company_name} onChange={update("company_name")} placeholder="Ex: Mercadinho Boa Vista" />
           <Field label="Nome da primeira loja" required value={form.store_name} onChange={update("store_name")} placeholder="Ex: Loja Centro" />
-          <Field label="Cidade da loja" value={form.store_city} onChange={update("store_city")} placeholder="Ex: Manaus, AM" />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 5 }}>Cidade da loja</label>
+            <CitySelect value={form.store_city} onChange={(v) => setForm((f) => ({ ...f, store_city: v }))} />
+          </div>
           <PrimaryButton type="submit">
             Continuar
             <ArrowRight size={14} />
@@ -633,21 +838,26 @@ function OnboardingScreen({ onFinished, onGoToLogin, prepaidToken }) {
         </form>
       )}
 
-      {step === 2 && (
+      {phase === "account" && (
         <form onSubmit={handleSubmit}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
             <button
               type="button"
               className="lp-btn"
-              onClick={() => setStep(1)}
+              onClick={() => setPhase("business")}
               style={{ border: "none", background: "transparent", color: COLORS.textMuted, display: "flex" }}
             >
               <ArrowLeft size={15} />
             </button>
             <div style={{ fontSize: 13, fontWeight: 600 }}>Sua conta de acesso</div>
           </div>
-          <Field label="Seu nome" required value={form.owner_name} onChange={update("owner_name")} placeholder="Ex: Maria Souza" />
-          <Field label="Email" type="email" required value={form.email} onChange={update("email")} />
+          {/* Quem veio do Pix inline já informou nome/email lá atrás — só falta a senha. */}
+          {!cameFromInlinePix && (
+            <>
+              <Field label="Seu nome" required value={form.owner_name} onChange={update("owner_name")} placeholder="Ex: Maria Souza" />
+              <Field label="Email" type="email" required value={form.email} onChange={update("email")} />
+            </>
+          )}
           <Field label="Senha" type="password" required minLength={8} value={form.password} onChange={update("password")} />
           <Field label="Confirme a senha" type="password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
           <Turnstile onVerify={setTurnstileToken} />
@@ -808,11 +1018,130 @@ function Stat({ icon, label, value, foot, variant, bars }) {
   );
 }
 
+// Painel de espera de pagamento Pix — QR Code + copia-e-cola (mesmo
+// visual já usado em SubscribeModal) + polling automático enquanto
+// aguarda a confirmação, com botão manual e aviso se demorar. Genérico
+// de propósito: quem usa passa como checar o status e como saber se já
+// confirmou, porque os dois pontos que usam isso (loja adicional e
+// cadastro inicial) têm formatos de resposta diferentes.
+function PixPaymentPanel({ pixQrCodeImage, pixCopyPaste, checkStatus, isConfirmed, onConfirmed, footerNote }) {
+  const POLL_MS = 3000;
+  const TIMEOUT_MS = 120000;
+  const [checking, setChecking] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [pollError, setPollError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      if (cancelled) return;
+      setElapsedMs((ms) => ms + POLL_MS);
+      try {
+        const result = await checkStatus();
+        if (!cancelled && isConfirmed(result)) {
+          onConfirmed(result);
+        }
+      } catch {
+        // falha pontual de rede não deve travar o polling — só tenta de novo no próximo ciclo
+      }
+    }, POLL_MS);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [checkStatus, isConfirmed, onConfirmed]);
+
+  async function checkNow() {
+    setChecking(true);
+    setPollError(null);
+    try {
+      const result = await checkStatus();
+      if (isConfirmed(result)) onConfirmed(result);
+    } catch (err) {
+      setPollError(err.message);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  function copyPix() {
+    navigator.clipboard?.writeText(pixCopyPaste);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(52,211,153,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <QrCode size={13} color={COLORS.teal} />
+        </div>
+        <span style={{ fontWeight: 600, fontSize: 13.5 }}>Pague com Pix pra continuar</span>
+      </div>
+
+      {pixQrCodeImage ? (
+        <>
+          <p style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4, marginBottom: 14 }}>
+            Escaneie o QR Code no app do seu banco, ou copie o código Pix abaixo.
+          </p>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+            <img
+              src={`data:image/png;base64,${pixQrCodeImage}`}
+              alt="QR Code Pix"
+              style={{ width: 180, height: 180, borderRadius: 8, background: "#fff", padding: 8 }}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, borderRadius: 7, padding: "9px 10px", marginBottom: 14 }}>
+            <code style={{ flex: 1, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", color: COLORS.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {pixCopyPaste}
+            </code>
+            <button type="button" className="lp-btn" onClick={copyPix} style={{ border: "none", background: "transparent", color: copied ? COLORS.teal : COLORS.textMuted, display: "flex" }}>
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 4, marginBottom: 14 }}>Gerando QR Code…</p>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10, fontSize: 12, color: COLORS.textMuted }}>
+        <Loader2 size={13} className="lp-spin" />
+        Aguardando confirmação do pagamento…
+      </div>
+
+      {elapsedMs >= TIMEOUT_MS && (
+        <div style={{ fontSize: 11.5, color: COLORS.textFaint, textAlign: "center", marginBottom: 10 }}>
+          Ainda processando — pode levar mais alguns instantes.
+        </div>
+      )}
+
+      <ErrorNote message={pollError} />
+
+      <button
+        type="button"
+        className="lp-btn"
+        onClick={checkNow}
+        disabled={checking}
+        style={{ width: "100%", padding: "9px 0", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.textMuted, fontSize: 12.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+      >
+        {checking ? <Loader2 size={13} className="lp-spin" /> : "Já paguei, verificar agora"}
+      </button>
+
+      {footerNote && (
+        <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginTop: 14, lineHeight: 1.5 }}>{footerNote}</div>
+      )}
+    </div>
+  );
+}
+
 function AddStoreModal({ api, onClose, onCreated }) {
+  // phase: "form" (nome/cidade) -> "paying" (QR Code Pix) -> "created" (chave)
+  const [phase, setPhase] = useState("form");
   const [name, setName] = useState("");
   const [city, setCity] = useState("");
+  const [cpfCnpj, setCpfCnpj] = useState("");
+  const [needsCpfCnpj, setNeedsCpfCnpj] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [purchase, setPurchase] = useState(null); // { id, pix_qr_code_image, pix_copy_paste }
   const [created, setCreated] = useState(null); // guarda a edge_api_key pra mostrar
   const [copied, setCopied] = useState(false);
 
@@ -821,14 +1150,21 @@ function AddStoreModal({ api, onClose, onCreated }) {
     setLoading(true);
     setError(null);
     try {
-      const store = await api("/v1/stores", {
+      const body = { name, city: city || null };
+      if (cpfCnpj) body.cpf_cnpj = cpfCnpj.replace(/\D/g, "");
+      const data = await api("/v1/billing/store-purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, city: city || null }),
+        body: JSON.stringify(body),
       });
-      setCreated(store);
-      onCreated(store);
+      setPurchase(data);
+      setPhase("paying");
     } catch (err) {
+      // Empresa sem CPF/CNPJ registrado ainda (primeira cobrança) — revela
+      // o campo em vez de só mostrar o erro, pra não travar o dono aqui.
+      if (err.message && err.message.includes("CPF/CNPJ")) {
+        setNeedsCpfCnpj(true);
+      }
       setError(err.message);
     } finally {
       setLoading(false);
@@ -843,7 +1179,7 @@ function AddStoreModal({ api, onClose, onCreated }) {
 
   return (
     <div
-      onClick={onClose}
+      onClick={phase === "form" ? onClose : undefined}
       className="lp-overlay-in"
       style={{
         position: "fixed",
@@ -866,14 +1202,25 @@ function AddStoreModal({ api, onClose, onCreated }) {
           borderRadius: 10,
           padding: 24,
           boxShadow: SHADOW,
+          maxHeight: "90vh",
+          overflowY: "auto",
         }}
       >
-        {!created ? (
+        {phase === "form" && (
           <>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Adicionar loja</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Adicionar loja</div>
+            <p style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 0, marginBottom: 16 }}>
+              Cada loja adicional custa R$ {PRICE_PER_PACKAGE.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mês, cobrado via Pix — a loja é criada assim que o pagamento confirmar.
+            </p>
             <form onSubmit={handleSubmit}>
               <Field label="Nome da loja" required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Loja Shopping Sul" />
-              <Field label="Cidade" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Ex: Curitiba, PR" />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, color: COLORS.textMuted, display: "block", marginBottom: 5 }}>Cidade</label>
+                <CitySelect value={city} onChange={setCity} />
+              </div>
+              {needsCpfCnpj && (
+                <Field label="CPF ou CNPJ do responsável" required value={cpfCnpj} onChange={(e) => setCpfCnpj(e.target.value)} placeholder="Só números" />
+              )}
               <ErrorNote message={error} />
               <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                 <button
@@ -885,12 +1232,29 @@ function AddStoreModal({ api, onClose, onCreated }) {
                   Cancelar
                 </button>
                 <div style={{ flex: 1.4 }}>
-                  <PrimaryButton type="submit" loading={loading}>Criar loja</PrimaryButton>
+                  <PrimaryButton type="submit" loading={loading}>Gerar cobrança Pix</PrimaryButton>
                 </div>
               </div>
             </form>
           </>
-        ) : (
+        )}
+
+        {phase === "paying" && purchase && (
+          <PixPaymentPanel
+            pixQrCodeImage={purchase.pix_qr_code_image}
+            pixCopyPaste={purchase.pix_copy_paste}
+            checkStatus={() => api(`/v1/billing/store-purchase/${purchase.id}/status`)}
+            isConfirmed={(r) => r.status === "claimed" && r.store}
+            onConfirmed={(r) => {
+              setCreated(r.store);
+              setPhase("created");
+              onCreated(r.store);
+            }}
+            footerNote={`A loja "${name}" é criada automaticamente assim que o Pix cair.`}
+          />
+        )}
+
+        {phase === "created" && created && (
           <>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <div style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(52,211,153,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>

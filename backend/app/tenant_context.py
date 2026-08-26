@@ -119,3 +119,26 @@ def set_prepaid_checkout_id_lookup(db: Session, asaas_checkout_id: str) -> None:
         text("SET LOCAL app.lookup_prepaid_checkout_id = :cid"),
         {"cid": asaas_checkout_id},
     )
+
+
+def set_prepaid_payment_id_lookup(db: Session, asaas_payment_id: str) -> None:
+    """Igual set_prepaid_checkout_id_lookup, mas pro fluxo Pix inline de
+    pré-cadastro (POST /v1/billing/prepaid-pix) — o webhook recebe um
+    payment_id avulso, não um checkout_id, então precisa de um lookup
+    próprio pra achar a linha de PrepaidCheckout correspondente."""
+    db.execute(
+        text("SET LOCAL app.lookup_prepaid_payment_id = :pid"),
+        {"pid": asaas_payment_id},
+    )
+
+
+def set_store_purchase_payment_lookup(db: Session, asaas_payment_id: str) -> None:
+    """Usado pelo webhook do Asaas pra achar a linha de
+    PendingStorePurchase correspondente a uma loja adicional comprada
+    (ver POST /v1/billing/store-purchase) — o webhook não tem
+    app.current_company_id setado (não veio de uma sessão logada), só o
+    payment_id do evento."""
+    db.execute(
+        text("SET LOCAL app.lookup_store_purchase_payment_id = :pid"),
+        {"pid": asaas_payment_id},
+    )

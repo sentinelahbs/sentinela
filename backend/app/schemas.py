@@ -327,7 +327,7 @@ class SuppressedEventOut(BaseModel):
 
 class SubscribeIn(BaseModel):
     cpf_cnpj: str          # CPF ou CNPJ do responsável/empresa, exigido pelo Asaas
-    camera_packages: int    # quantidade de pacotes de 5 câmeras (mínimo 1)
+    camera_packages: int    # quantidade de pacotes de câmeras (ver CAMERAS_PER_PACKAGE em routers/billing.py; mínimo 1)
 
 
 class SubscribeOut(BaseModel):

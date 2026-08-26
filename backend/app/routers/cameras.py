@@ -1,6 +1,7 @@
 """
 Cadastro de câmeras por loja — com limite baseado em quantos pacotes de
-5 câmeras a empresa contratou (camera_limit em Company).
+câmeras (CAMERAS_PER_PACKAGE, ver routers/billing.py) a empresa contratou
+(camera_limit em Company).
 
 Antes desse router, câmeras eram só um texto livre (camera_label) dentro
 do alerta — não existia cadastro nem controle de quantidade. Agora o
@@ -19,6 +20,7 @@ from schemas import (
 )
 from auth import get_current_user, get_store_from_edge_key, assert_user_can_access_store
 from tenant_context import set_company_context
+from routers.billing import CAMERAS_PER_PACKAGE
 
 router = APIRouter(prefix="/v1/stores/{store_id}/cameras", tags=["cameras"])
 
@@ -70,7 +72,7 @@ def create_camera(
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
             f"Limite de câmeras contratado atingido ({company.camera_limit}). "
-            f"Contrate mais um pacote de 5 câmeras para adicionar novas câmeras.",
+            f"Contrate mais um pacote de {CAMERAS_PER_PACKAGE} câmeras para adicionar novas câmeras.",
         )
 
     # Valor puro antes do commit: depois dele o SQLAlchemy expira os

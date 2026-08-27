@@ -1,4 +1,4 @@
-opencv-python==4.10.0.84
+opencv-python==5.0.0.93
 ultralytics==8.3.28
 onnxruntime==1.19.2
 mediapipe==0.10.18

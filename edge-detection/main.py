@@ -114,9 +114,10 @@ def run_camera(store_cfg, camera_cfg):
 
     try:
         for ts, frame in capture.frames():
-            # bags: recipientes detectados no frame (mochila/bolsa/mala) --
-            # extração ainda sem uso por nenhuma regra (ver BAG_CLASS_IDS
-            # em detector.py e memória do projeto).
+            # bags: recipientes detectados no frame (mochila/bolsa/mala,
+            # ver BAG_CLASS_IDS em detector.py) -- usado por
+            # HandDisappearanceRule pra saber se a mão sumiu sobrepondo
+            # uma bolsa de verdade, não só uma região "incomum" do corpo.
             signals, bags = perception.process(frame)
             track_ids = tracker.update([s.person_bbox for s in signals], capture.get_frame_size())
 
@@ -146,7 +147,7 @@ def run_camera(store_cfg, camera_cfg):
                 person_id = f"person_{track_id}"
 
                 still_result = rule.evaluate(person_id, signal.hands_norm)
-                disappearance_result = disappearance_rule.evaluate(person_id, signal)
+                disappearance_result = disappearance_rule.evaluate(person_id, signal, bags)
                 is_suspicious, confidence, reason = combine_rule_results(still_result, disappearance_result)
                 if not is_suspicious or confidence < camera_cfg.min_confidence_to_alert:
                     continue

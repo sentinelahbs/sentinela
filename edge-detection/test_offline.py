@@ -538,7 +538,7 @@ def main():
                             rec["last_sig"] = sig
 
                     still_result = rule.evaluate(person_id, signal.hands_norm)
-                    disappear_result = disappearance_rule.evaluate(person_id, signal)
+                    disappear_result = disappearance_rule.evaluate(person_id, signal, bags)
                     is_suspicious, confidence, reason = combine_rule_results(still_result, disappear_result)
 
                     fired_labels = []

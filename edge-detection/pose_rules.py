@@ -131,18 +131,58 @@ class SuspiciousBehaviorRule:
         self.trackers.pop(person_id, None)
 
 
+def _is_own_bag(bag_bbox: tuple, person_bbox: tuple, containment_threshold: float = 0.6) -> bool:
+    """True se a bolsa está majoritariamente DENTRO da própria caixa da
+    pessoa (ex: mochila nas costas, bolsa a tiracolo) -- nesse caso a mão
+    dela vai estar perto o tempo todo só pela posição no corpo, sem
+    relação nenhuma com esconder algo. Descoberto testando contra vídeo
+    real: sem isso, qualquer um usando mochila disparava a regra de bolsa
+    só de andar/mexer na prateleira normalmente (ver memória do projeto).
+
+    Limitação aceita: isso também deixa passar batido o caso de alguém
+    usar a PRÓPRIA bolsa de propósito pra esconder algo (segurar ela na
+    frente do corpo e guardar item ali) -- não dá pra distinguir isso de
+    "só carregando a bolsa" com geometria sozinha."""
+    bx1, by1, bx2, by2 = bag_bbox
+    px1, py1, px2, py2 = person_bbox
+    ix1, iy1 = max(bx1, px1), max(by1, py1)
+    ix2, iy2 = min(bx2, px2), min(by2, py2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    intersection = iw * ih
+    bag_area = max(1, (bx2 - bx1) * (by2 - by1))
+    return (intersection / bag_area) >= containment_threshold
+
+
+def _hand_near_bag(hand_px, bags: list, margin_px: int = 20) -> bool:
+    """True se a posição (pixel) da mão está dentro de alguma caixa de
+    bolsa/mochila/mala detectada (ver BAG_CLASS_IDS em detector.py),
+    com uma margem pequena -- a mão some geralmente ANTES de estar bem
+    no centro da bolsa (borda da abertura, alça), uma margem justa
+    evita perder o caso por poucos pixels sem ficar frouxa demais."""
+    if hand_px is None or not bags:
+        return False
+    hx, hy = hand_px
+    for bbox, _score, _label in bags:
+        x1, y1, x2, y2 = bbox
+        if x1 - margin_px <= hx <= x2 + margin_px and y1 - margin_px <= hy <= y2 + margin_px:
+            return True
+    return False
+
+
 @dataclass
 class HandDisappearanceTracker:
     """Acompanha se uma mão que estava dentro da zona de interesse
     'sumiu' (MediaPipe perdeu o rastreamento, visibility caiu) por tempo
     suficiente pra não ser ruído de oclusão momentânea — e, quando some,
     guarda em que região do corpo ela foi vista pela última vez (ver
-    HandDisappearanceRule._classify_region)."""
+    HandDisappearanceRule._classify_region) e se estava sobrepondo uma
+    bolsa/mochila detectada (ver _hand_near_bag)."""
     was_in_zone: bool = False
     last_region: "str | None" = None  # "unusual" | "normal" | None
+    last_in_bag: bool = False
     missing_frame_count: int = 0
 
-    def update(self, hand_pos_norm, in_zone: bool, region) -> None:
+    def update(self, hand_pos_norm, in_zone: bool, region, in_bag: bool = False) -> None:
         if hand_pos_norm is not None:
             # mão visível neste frame — guarda o estado mais recente e
             # zera o contador (só conta sumiço CONTÍNUO, mesmo princípio
@@ -150,6 +190,7 @@ class HandDisappearanceTracker:
             # principal).
             self.was_in_zone = in_zone
             self.last_region = region
+            self.last_in_bag = in_bag
             self.missing_frame_count = 0
             return
         if self.was_in_zone:
@@ -172,7 +213,21 @@ class HandDisappearanceRule:
     necessariamente bolso. Por isso esse sinal sozinho ainda registra o
     evento (confiança baixa, pro dono observar casos reais e calibrar),
     e só vira alerta de confiança alta quando bate JUNTO com a regra
-    principal disparando pra mesma pessoa."""
+    principal disparando pra mesma pessoa.
+
+    Também aceita, opcionalmente, a lista de bolsas/mochilas/malas
+    detectadas no frame (ver BAG_CLASS_IDS em detector.py) — se a mão
+    some sobrepondo a caixa de uma bolsa de verdade (em vez de só uma
+    região "incomum" do corpo, inferida pela altura), é um sinal mais
+    específico: sabemos que existe um recipiente real ali, não só
+    inferimos pela posição. Ainda ambíguo por natureza (bolsa pode estar
+    sendo carregada no corpo o tempo todo, sem nada sendo escondido
+    nela), mas menos ambíguo que o caso genérico — por isso começa com
+    confiança mais alta e escala mais rápido (ver BAG_ALONE_CONFIDENCE
+    abaixo). Precisa de AMBAS as condições que já existiam pra
+    disparar: a mão tem que ter vindo da zona de interesse antes de
+    sumir -- uma bolsa parada perto de alguém que nunca foi até a
+    prateleira não conta."""
 
     def __init__(self, zone_points: list, missing_frames_threshold: int, exclusion_zones: "list | None" = None):
         self.zone = Polygon(zone_points) if zone_points else None
@@ -208,21 +263,32 @@ class HandDisappearanceRule:
             return "normal"
         return None
 
-    def evaluate(self, person_id: str, signal) -> tuple:
-        """Retorna (fired, confidence, reason). A confiança sozinha
-        começa conservadora (DISAPPEARANCE_ALONE_CONFIDENCE, ver
-        constantes abaixo) e sobe conforme o sumiço persiste além do
-        threshold de frames -- mesmo princípio de "overshoot" que
-        SuspiciousBehaviorRule.evaluate já usa pra regra principal. Sem
-        isso, alguém andando pela loja com as duas mãos escondidas por
-        vários segundos seguidos nunca ultrapassava esse sinal sozinho,
-        não importava quanto tempo durasse -- só a duração no primeiro
-        instante em que cruzava o threshold importava."""
+    def evaluate(self, person_id: str, signal, bags: "list | None" = None) -> tuple:
+        """Retorna (fired, confidence, reason). bags: lista opcional de
+        bolsas/mochilas/malas detectadas no frame (ver BAG_CLASS_IDS em
+        detector.py) -- [(bbox_px, score, label), ...]. Sem isso (ou
+        lista vazia), a regra se comporta exatamente como antes (só
+        região "incomum" do corpo).
+
+        A confiança sozinha começa conservadora (DISAPPEARANCE_ALONE_
+        CONFIDENCE, ou BAG_ALONE_CONFIDENCE quando some sobrepondo uma
+        bolsa de verdade -- ver constantes abaixo) e sobe conforme o
+        sumiço persiste além do threshold de frames -- mesmo princípio
+        de "overshoot" que SuspiciousBehaviorRule.evaluate já usa pra
+        regra principal. Sem isso, alguém andando pela loja com as duas
+        mãos escondidas por vários segundos seguidos nunca ultrapassava
+        esse sinal sozinho, não importava quanto tempo durasse -- só a
+        duração no primeiro instante em que cruzava o threshold
+        importava."""
+        # Tira a(s) bolsa(s) da própria pessoa (mochila nas costas, bolsa a
+        # tiracolo) -- ver _is_own_bag pro motivo e a limitação aceita.
+        other_bags = [b for b in (bags or []) if not _is_own_bag(b[0], signal.person_bbox)]
         trackers = self.trackers.setdefault(person_id, [])
         while len(trackers) < len(signal.hands_norm):
             trackers.append(HandDisappearanceTracker())
 
         best_missing_count = 0
+        best_in_bag = False
         for slot, hand_pos in enumerate(signal.hands_norm):
             tracker = trackers[slot]
             in_zone = self._in_zone(hand_pos) if hand_pos is not None else False
@@ -230,23 +296,43 @@ class HandDisappearanceRule:
                 self._classify_region(hand_pos[1], signal.shoulder_y_norm, signal.hip_y_norm)
                 if hand_pos is not None else None
             )
-            tracker.update(hand_pos, in_zone, region)
+            hand_px = signal.hands_px[slot] if slot < len(signal.hands_px) else None
+            in_bag = _hand_near_bag(hand_px, other_bags) if hand_pos is not None else False
+            tracker.update(hand_pos, in_zone, region, in_bag)
 
-            if tracker.missing_frame_count >= self.missing_frames_threshold and tracker.last_region == "unusual":
-                best_missing_count = max(best_missing_count, tracker.missing_frame_count)
+            qualifies = tracker.missing_frame_count >= self.missing_frames_threshold and (
+                tracker.last_region == "unusual" or tracker.last_in_bag
+            )
+            if not qualifies:
+                continue
+            # Prioriza o sinal de bolsa sobre o genérico de região
+            # incomum quando os dois qualificam em mãos diferentes --
+            # mais específico, vale mais que só pegar quem ficou sumido
+            # por mais frames.
+            if tracker.last_in_bag and not best_in_bag:
+                best_missing_count, best_in_bag = tracker.missing_frame_count, True
+            elif tracker.last_in_bag == best_in_bag and tracker.missing_frame_count > best_missing_count:
+                best_missing_count = tracker.missing_frame_count
 
         if best_missing_count == 0:
             return False, 0.0, None
 
         overshoot = best_missing_count - self.missing_frames_threshold
-        confidence = min(
-            DISAPPEARANCE_ALONE_CONFIDENCE + overshoot * DISAPPEARANCE_ESCALATION_STEP,
-            DISAPPEARANCE_ALONE_CAP,
-        )
-        reason = (
-            "Mão desapareceu da visão em região incomum do corpo "
-            "(cintura/lateral) após estar na zona de interesse"
-        )
+        if best_in_bag:
+            confidence = min(BAG_ALONE_CONFIDENCE + overshoot * BAG_ESCALATION_STEP, BAG_ALONE_CAP)
+            reason = (
+                "Mão desapareceu sobrepondo uma bolsa/mochila detectada, "
+                "após estar na zona de interesse"
+            )
+        else:
+            confidence = min(
+                DISAPPEARANCE_ALONE_CONFIDENCE + overshoot * DISAPPEARANCE_ESCALATION_STEP,
+                DISAPPEARANCE_ALONE_CAP,
+            )
+            reason = (
+                "Mão desapareceu da visão em região incomum do corpo "
+                "(cintura/lateral) após estar na zona de interesse"
+            )
         return True, round(confidence, 2), reason
 
     def apply_calibration(
@@ -281,6 +367,18 @@ class HandDisappearanceRule:
 DISAPPEARANCE_ALONE_CONFIDENCE = 0.35
 DISAPPEARANCE_ESCALATION_STEP = 0.01
 DISAPPEARANCE_ALONE_CAP = 0.9
+
+# Mesmo princípio acima, mas pro caso mais específico: a mão some
+# sobrepondo uma bolsa/mochila/mala DETECTADA de verdade (ver
+# BAG_CLASS_IDS em detector.py), não só uma região "incomum" do corpo
+# inferida por altura. Sabemos que existe um recipiente real ali — ainda
+# ambíguo (a pessoa pode estar só carregando a bolsa, sem esconder nada
+# dentro dela), mas menos ambíguo que o caso genérico. Por isso começa
+# mais alto e escala mais rápido: cruza 0.55 sozinho ~5 frames depois do
+# threshold (a regra genérica precisa de ~20).
+BAG_ALONE_CONFIDENCE = 0.45
+BAG_ESCALATION_STEP = 0.02
+BAG_ALONE_CAP = 0.92
 
 # Quanto a confiança da regra principal sobe quando as duas regras
 # disparam juntas pra mesma pessoa — sinal corroborado, mais confiável

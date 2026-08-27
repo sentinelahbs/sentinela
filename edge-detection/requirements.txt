@@ -5,3 +5,9 @@ mediapipe==0.10.18
 shapely==2.0.6
 requests==2.32.3
 numpy==1.26.4
+# Usado por clip_recorder.py (produção, ClipRecorder.write_clip) e por
+# test_offline.py -- corrige o índice (moov atom) dos vídeos gerados pro
+# início do arquivo depois de escrever, senão vários players (o do
+# dashboard incluso) recusam ou travam ao abrir, mesmo o arquivo estando
+# íntegro. Binário ffmpeg empacotado, não precisa de ffmpeg instalado na box.
+imageio-ffmpeg==0.6.0

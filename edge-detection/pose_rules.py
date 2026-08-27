@@ -19,6 +19,16 @@ from dataclasses import dataclass, field
 from shapely.geometry import Point, Polygon
 
 
+def _build_zones(zones_points: "list | None") -> list:
+    """Constrói uma lista de Polygon a partir de uma lista de listas de
+    pontos ([(x,y), ...], [(x,y), ...], ...) -- usado pelas zonas de
+    exclusão (ver SuspiciousBehaviorRule/HandDisappearanceRule). Lista
+    vazia ou None = nenhuma zona de exclusão configurada."""
+    if not zones_points:
+        return []
+    return [Polygon(pts) for pts in zones_points]
+
+
 @dataclass
 class HandTracker:
     """Mantém o histórico de posição de uma mão ao longo dos frames pra
@@ -46,9 +56,16 @@ class HandTracker:
 
 
 class SuspiciousBehaviorRule:
-    def __init__(self, zone_points: list, still_frames_threshold: int):
+    def __init__(self, zone_points: list, still_frames_threshold: int, exclusion_zones: "list | None" = None):
         self.zone = Polygon(zone_points) if zone_points else None
         self.still_frames_threshold = still_frames_threshold
+        # Áreas DENTRO da zona de interesse que não devem contar --
+        # ex: um freezer/prateleira baixa onde reabastecer o produto tem a
+        # mesma assinatura geométrica (mão na altura do quadril, some da
+        # visão) que esconder algo no bolso, gerando falso positivo em
+        # funcionário repondo mercadoria. Configurável por câmera, mesmo
+        # formato de zone_points (lista de polígonos, não só um).
+        self.exclusion_zones = _build_zones(exclusion_zones)
         # cada pessoa tem uma lista de trackers, um por "posição" na lista de
         # mãos (esquerda, direita) — sem isso, quando as duas mãos aparecem
         # no quadro, a posição de uma acabava sendo comparada com a da outra
@@ -56,9 +73,11 @@ class SuspiciousBehaviorRule:
         self.trackers = {}  # id da pessoa -> list[HandTracker]
 
     def _in_zone(self, pos_norm: tuple) -> bool:
-        if self.zone is None:
-            return True  # sem zona configurada = zona é o quadro inteiro
-        return self.zone.contains(Point(pos_norm))
+        if self.zone is not None and not self.zone.contains(Point(pos_norm)):
+            return False
+        if self.exclusion_zones and any(z.contains(Point(pos_norm)) for z in self.exclusion_zones):
+            return False
+        return True
 
     def evaluate(self, person_id: str, hands_norm: list):
         """Retorna (is_suspicious, confidence, reason) para uma pessoa neste frame."""
@@ -87,7 +106,9 @@ class SuspiciousBehaviorRule:
         reason = "Mão parada dentro da zona de interesse por tempo prolongado"
         return True, round(confidence, 2), reason
 
-    def apply_calibration(self, zone_points: list, still_frames_threshold: int) -> None:
+    def apply_calibration(
+        self, zone_points: list, still_frames_threshold: int, exclusion_zones: "list | None" = None
+    ) -> None:
         """Aplica calibração nova em tempo real, sem recriar o objeto —
         usado por calibration_sync.py quando o backend manda uma zona ou
         threshold atualizado, no meio da operação. De propósito NÃO mexe
@@ -100,6 +121,7 @@ class SuspiciousBehaviorRule:
         com um payload de rede malformado."""
         self.zone = Polygon(zone_points) if zone_points else None
         self.still_frames_threshold = still_frames_threshold
+        self.exclusion_zones = _build_zones(exclusion_zones)
 
     def forget(self, person_id: str) -> None:
         """Chamado quando o tracker (ver tracker.py) dá uma pessoa como
@@ -152,15 +174,21 @@ class HandDisappearanceRule:
     e só vira alerta de confiança alta quando bate JUNTO com a regra
     principal disparando pra mesma pessoa."""
 
-    def __init__(self, zone_points: list, missing_frames_threshold: int):
+    def __init__(self, zone_points: list, missing_frames_threshold: int, exclusion_zones: "list | None" = None):
         self.zone = Polygon(zone_points) if zone_points else None
         self.missing_frames_threshold = missing_frames_threshold
+        # Mesmo conceito de SuspiciousBehaviorRule.exclusion_zones -- ver
+        # comentário lá pro motivo (ex: freezer/prateleira baixa onde
+        # reabastecer parece "esconder algo no bolso" pra essa regra).
+        self.exclusion_zones = _build_zones(exclusion_zones)
         self.trackers = {}  # id da pessoa -> list[HandDisappearanceTracker]
 
     def _in_zone(self, pos_norm: tuple) -> bool:
-        if self.zone is None:
-            return True
-        return self.zone.contains(Point(pos_norm))
+        if self.zone is not None and not self.zone.contains(Point(pos_norm)):
+            return False
+        if self.exclusion_zones and any(z.contains(Point(pos_norm)) for z in self.exclusion_zones):
+            return False
+        return True
 
     @staticmethod
     def _classify_region(hand_y_norm: float, shoulder_y_norm, hip_y_norm):
@@ -221,13 +249,16 @@ class HandDisappearanceRule:
         )
         return True, round(confidence, 2), reason
 
-    def apply_calibration(self, zone_points: list, missing_frames_threshold: int) -> None:
+    def apply_calibration(
+        self, zone_points: list, missing_frames_threshold: int, exclusion_zones: "list | None" = None
+    ) -> None:
         """Mesmo princípio de SuspiciousBehaviorRule.apply_calibration —
         hot-reload sem recriar o objeto, preserva self.trackers. Hoje
         sempre chamado com o mesmo threshold da regra principal (ver
         main.py) — essa regra ainda não tem calibração remota própria."""
         self.zone = Polygon(zone_points) if zone_points else None
         self.missing_frames_threshold = missing_frames_threshold
+        self.exclusion_zones = _build_zones(exclusion_zones)
 
     def forget(self, person_id: str) -> None:
         self.trackers.pop(person_id, None)

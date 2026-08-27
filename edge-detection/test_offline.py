@@ -72,6 +72,8 @@ log = logging.getLogger("test_offline")
 HIGHLIGHT_HOLD_SECONDS = 1.0
 
 ZONE_COLOR = (0, 210, 255)       # amarelo (BGR) — contorno da zona de interesse
+EXCLUSION_ZONE_COLOR = (128, 0, 255)  # rosa/magenta — contorno de área excluída (ex: freezer)
+BAG_BOX_COLOR = (255, 140, 0)          # azul (BGR) — mochila/bolsa/mala detectada (só visualização, sem regra ainda)
 HAND_IN_ZONE_COLOR = (0, 220, 0)     # verde — mão visível dentro da zona
 HAND_OUT_ZONE_COLOR = (160, 160, 160)  # cinza — mão visível fora da zona
 SHOULDER_LINE_COLOR = (255, 200, 0)   # ciano — referência de ombro
@@ -140,6 +142,14 @@ def parse_args():
         help='Zona de interesse, JSON de pares [x,y] normalizados 0-1. Default: mesma zona padrão da box.',
     )
     parser.add_argument(
+        "--exclusion-zone", default="[]",
+        help=(
+            "Sub-área(s) DENTRO da zona de interesse a ignorar (ex: freezer/prateleira baixa, onde "
+            "reabastecer parece 'esconder algo' pra essas regras). JSON de lista de zonas, cada uma no "
+            "mesmo formato de --zone: '[[[0.0,0.6],[0.3,0.6],[0.3,0.98],[0.0,0.98]]]'. Default: nenhuma."
+        ),
+    )
+    parser.add_argument(
         "--still-frames-threshold", type=int, default=_DEFAULT_HAND_STILL_FRAMES,
         help=f"Frames seguidos de mão parada pra disparar a regra principal (default: {_DEFAULT_HAND_STILL_FRAMES}, igual à box).",
     )
@@ -150,6 +160,17 @@ def parse_args():
     parser.add_argument(
         "--min-confidence", type=float, default=_DEFAULT_MIN_CONFIDENCE,
         help=f"Confiança mínima pra um evento contar como 'teria alertado' no log (default: {_DEFAULT_MIN_CONFIDENCE}, igual à box).",
+    )
+    parser.add_argument(
+        "--bag-confidence", type=float, default=0.35,
+        help=(
+            "Confiança mínima pra desenhar uma mochila/bolsa/mala detectada no vídeo anotado "
+            "(default: 0.35). Só visualização por enquanto -- nenhuma regra usa isso ainda."
+        ),
+    )
+    parser.add_argument(
+        "--no-show-bags", action="store_true",
+        help="Não desenha as mochilas/bolsas/malas detectadas no vídeo anotado (ligado por padrão).",
     )
     parser.add_argument(
         "--frame-skip", type=int, default=1,
@@ -255,12 +276,12 @@ def _in_zone_color(hand_pos, zone_rule):
     return HAND_IN_ZONE_COLOR if zone_rule._in_zone(hand_pos) else HAND_OUT_ZONE_COLOR
 
 
-def _draw_zone(frame, zone_points, w, h):
+def _draw_zone(frame, zone_points, w, h, color=ZONE_COLOR):
     if not zone_points:
         return
     pts = [(int(x * w), int(y * h)) for x, y in zone_points]
     for i in range(len(pts)):
-        cv2.line(frame, pts[i], pts[(i + 1) % len(pts)], ZONE_COLOR, 2)
+        cv2.line(frame, pts[i], pts[(i + 1) % len(pts)], color, 2)
 
 
 def _draw_person(frame, signal, track_id, w, h, rule, fired_labels):
@@ -290,6 +311,19 @@ def _draw_person(frame, signal, track_id, w, h, rule, fired_labels):
     if fired_labels:
         label = " + ".join(fired_labels)
         cv2.putText(frame, label, (x1, min(h - 5, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, ALERT_BOX_COLOR, 2)
+
+
+def _draw_bags(frame, bags):
+    """Desenha os recipientes detectados (mochila/bolsa/mala, ver
+    BAG_CLASS_IDS em detector.py) -- só pra visualizar a extração nova,
+    nenhuma regra usa isso ainda."""
+    for bbox, score, label in bags:
+        x1, y1, x2, y2 = bbox
+        cv2.rectangle(frame, (x1, y1), (x2, y2), BAG_BOX_COLOR, 1)
+        cv2.putText(
+            frame, f"{label} {score:.2f}", (x1, max(0, y1 - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, BAG_BOX_COLOR, 1,
+        )
 
 
 def _bbox_center(bbox):
@@ -365,6 +399,7 @@ def _group_tracks_by_appearance(track_appearance, frame_size, max_gap_seconds, m
 def main():
     args = parse_args()
     zone_points = [tuple(p) for p in json.loads(args.zone)]
+    exclusion_zones = [[tuple(p) for p in zone] for zone in json.loads(args.exclusion_zone)]
     missing_frames_threshold = args.missing_frames_threshold or args.still_frames_threshold
 
     if not os.path.exists(args.video_path):
@@ -389,6 +424,8 @@ def main():
     log.info(f"Vídeo: {args.video_path} ({frame_w}x{frame_h}, {source_fps:.1f}fps nativo, {total_frames} frames)")
     log.info(f"Backend de detecção: {DETECTION_BACKEND}")
     log.info(f"Zona: {zone_points}")
+    if exclusion_zones:
+        log.info(f"Zona(s) de exclusão: {exclusion_zones}")
     log.info(f"Threshold mão parada: {args.still_frames_threshold} frames | mão desaparecida: {missing_frames_threshold} frames")
     if args.frame_skip > 1:
         log.warning(
@@ -401,10 +438,14 @@ def main():
     else:
         log.info("frame-skip=1 (nenhum frame pulado) — fps efetivo bate com o vídeo de origem, mesmo comportamento de frame-a-frame da box real.")
 
-    perception = PerceptionPipeline(frame_size=(frame_w, frame_h))
+    perception = PerceptionPipeline(frame_size=(frame_w, frame_h), bag_confidence=args.bag_confidence)
     tracker = IouTracker()
-    rule = SuspiciousBehaviorRule(zone_points=zone_points, still_frames_threshold=args.still_frames_threshold)
-    disappearance_rule = HandDisappearanceRule(zone_points=zone_points, missing_frames_threshold=missing_frames_threshold)
+    rule = SuspiciousBehaviorRule(
+        zone_points=zone_points, still_frames_threshold=args.still_frames_threshold, exclusion_zones=exclusion_zones,
+    )
+    disappearance_rule = HandDisappearanceRule(
+        zone_points=zone_points, missing_frames_threshold=missing_frames_threshold, exclusion_zones=exclusion_zones,
+    )
 
     writer = None
     if not args.no_annotated_video:
@@ -466,7 +507,7 @@ def main():
                 # com as anotações de debug desenhadas, não o vídeo original.
                 frame_buffer.append((time.time(), frame.copy()))
 
-                signals = perception.process(frame)
+                signals, bags = perception.process(frame)
                 track_ids = tracker.update([s.person_bbox for s in signals], (frame_w, frame_h))
 
                 for ended in tracker.ended_tracks:
@@ -558,6 +599,10 @@ def main():
 
                 if writer is not None:
                     _draw_zone(frame, zone_points, frame_w, frame_h)
+                    for exclusion_points in exclusion_zones:
+                        _draw_zone(frame, exclusion_points, frame_w, frame_h, color=EXCLUSION_ZONE_COLOR)
+                    if not args.no_show_bags:
+                        _draw_bags(frame, bags)
                     for track_id, signal in zip(track_ids, signals):
                         person_id = f"person_{track_id}"
                         hold, rule_label = active_highlights.get(person_id, (0, None))

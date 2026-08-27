@@ -55,6 +55,7 @@ def run_camera(store_cfg, camera_cfg):
     rule = SuspiciousBehaviorRule(
         zone_points=camera_cfg.zone_of_interest,
         still_frames_threshold=camera_cfg.hand_still_frames_threshold,
+        exclusion_zones=camera_cfg.exclusion_zones,
     )
     # Regra complementar (ver pose_rules.py) — mão que desaparece da
     # visão numa região incomum do corpo, em vez de ficar parada. Reusa
@@ -67,6 +68,7 @@ def run_camera(store_cfg, camera_cfg):
     disappearance_rule = HandDisappearanceRule(
         zone_points=camera_cfg.zone_of_interest,
         missing_frames_threshold=camera_cfg.hand_still_frames_threshold,
+        exclusion_zones=camera_cfg.exclusion_zones,
     )
 
     # Roda em TODO processo de câmera, com ou sem supervisor — diferente
@@ -112,7 +114,10 @@ def run_camera(store_cfg, camera_cfg):
 
     try:
         for ts, frame in capture.frames():
-            signals = perception.process(frame)
+            # bags: recipientes detectados no frame (mochila/bolsa/mala) --
+            # extração ainda sem uso por nenhuma regra (ver BAG_CLASS_IDS
+            # em detector.py e memória do projeto).
+            signals, bags = perception.process(frame)
             track_ids = tracker.update([s.person_bbox for s in signals], capture.get_frame_size())
 
             # Pessoas que o tracker deu como fora de cena (frames demais

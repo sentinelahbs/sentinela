@@ -22,6 +22,16 @@ def _parse_zone_of_interest(raw: str) -> list:
     return [tuple(point) for point in json.loads(raw)]
 
 
+def _parse_exclusion_zones(raw: str) -> list:
+    """Formato esperado: JSON de lista de zonas, cada uma no mesmo formato
+    de _parse_zone_of_interest -- ex: '[[[0.1,0.6],[0.3,0.6],[0.3,0.9],
+    [0.1,0.9]]]' (uma zona excluída) ou com mais de uma zona na lista.
+    String vazia ou ausente = nenhuma exclusão."""
+    if not raw:
+        return []
+    return [[tuple(point) for point in zone] for zone in json.loads(raw)]
+
+
 def build_intelbras_rtsp_url(
     host: str, username: str, password: str, channel: int, port: int = 554, main_stream: bool = False
 ) -> str:
@@ -50,6 +60,14 @@ class CameraConfig:
     # Zona de interesse em coordenadas normalizadas (0-1) — ex: perto de uma
     # prateleira de alto valor. Formato: [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
     zone_of_interest: list = field(default_factory=list)
+    # Sub-áreas DENTRO da zona de interesse que não contam pras regras de
+    # mão parada/sumida -- ex: um freezer/prateleira baixa, onde reabastecer
+    # produto tem a mesma assinatura geométrica (mão na altura do quadril,
+    # some da visão) que esconder algo no bolso, gerando falso positivo em
+    # funcionário repondo mercadoria. Mesmo formato de zone_of_interest, só
+    # que é uma LISTA de polígonos (pode ter mais de uma área excluída):
+    # [[(x1,y1), (x2,y2), ...], [(x1,y1), ...]]. Lista vazia = nenhuma.
+    exclusion_zones: list = field(default_factory=list)
     # Quantos frames seguidos de "mão parada perto do corpo dentro da zona"
     # são necessários para considerar suspeito. Calibra sensibilidade.
     hand_still_frames_threshold: int = 45   # ~1.5s a 30fps
@@ -166,6 +184,7 @@ EXAMPLE_STORE = StoreConfig(
             zone_of_interest=_parse_zone_of_interest(
                 os.environ.get("CAMERA_ZONE", "[[0.1,0.35],[0.9,0.35],[0.9,0.98],[0.1,0.98]]")
             ),
+            exclusion_zones=_parse_exclusion_zones(os.environ.get("CAMERA_EXCLUSION_ZONES", "")),
             # Calibrado pra CPU sem GPU: nesse hardware o YOLOX+MediaPipe
             # processam ~1-1.5 frame/s, bem abaixo dos 30fps assumidos no
             # valor padrão da classe (45 frames levaria uns 30s pra

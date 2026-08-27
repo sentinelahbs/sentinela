@@ -181,14 +181,20 @@ class HandDisappearanceRule:
         return None
 
     def evaluate(self, person_id: str, signal) -> tuple:
-        """Retorna (fired, reason). Sem confidence aqui de propósito —
-        quem decide o peso final é combine_rule_results(), que sabe se
-        essa regra disparou sozinha ou junto com a principal."""
+        """Retorna (fired, confidence, reason). A confiança sozinha
+        começa conservadora (DISAPPEARANCE_ALONE_CONFIDENCE, ver
+        constantes abaixo) e sobe conforme o sumiço persiste além do
+        threshold de frames -- mesmo princípio de "overshoot" que
+        SuspiciousBehaviorRule.evaluate já usa pra regra principal. Sem
+        isso, alguém andando pela loja com as duas mãos escondidas por
+        vários segundos seguidos nunca ultrapassava esse sinal sozinho,
+        não importava quanto tempo durasse -- só a duração no primeiro
+        instante em que cruzava o threshold importava."""
         trackers = self.trackers.setdefault(person_id, [])
         while len(trackers) < len(signal.hands_norm):
             trackers.append(HandDisappearanceTracker())
 
-        fired_unusual = False
+        best_missing_count = 0
         for slot, hand_pos in enumerate(signal.hands_norm):
             tracker = trackers[slot]
             in_zone = self._in_zone(hand_pos) if hand_pos is not None else False
@@ -199,16 +205,21 @@ class HandDisappearanceRule:
             tracker.update(hand_pos, in_zone, region)
 
             if tracker.missing_frame_count >= self.missing_frames_threshold and tracker.last_region == "unusual":
-                fired_unusual = True
+                best_missing_count = max(best_missing_count, tracker.missing_frame_count)
 
-        if not fired_unusual:
-            return False, None
+        if best_missing_count == 0:
+            return False, 0.0, None
 
+        overshoot = best_missing_count - self.missing_frames_threshold
+        confidence = min(
+            DISAPPEARANCE_ALONE_CONFIDENCE + overshoot * DISAPPEARANCE_ESCALATION_STEP,
+            DISAPPEARANCE_ALONE_CAP,
+        )
         reason = (
             "Mão desapareceu da visão em região incomum do corpo "
             "(cintura/lateral) após estar na zona de interesse"
         )
-        return True, reason
+        return True, round(confidence, 2), reason
 
     def apply_calibration(self, zone_points: list, missing_frames_threshold: int) -> None:
         """Mesmo princípio de SuspiciousBehaviorRule.apply_calibration —
@@ -223,13 +234,22 @@ class HandDisappearanceRule:
 
 
 # Confiança usada quando a regra de desaparecimento dispara SOZINHA (sem
-# a regra principal também disparar pra mesma pessoa) — de propósito
-# abaixo do min_confidence_to_alert padrão (0.55, ver config.py), pra
-# esses eventos ficarem registrados sem virar alerta de cara; o dono
-# decide se quer baixar o threshold da câmera pra começar a ver esses
-# casos e calibrar antes de confiar neles com o mesmo peso da regra
-# principal.
+# a regra principal também disparar pra mesma pessoa) assim que cruza o
+# threshold de frames — de propósito abaixo do min_confidence_to_alert
+# padrão (0.55, ver config.py), pra um sumiço rápido/ambíguo (pode ser só
+# oclusão de prateleira numa compra normal) ficar registrado sem virar
+# alerta de cara. Sobe DISAPPEARANCE_ESCALATION_STEP por frame adicional
+# além do threshold (mesmo princípio de "overshoot" que
+# SuspiciousBehaviorRule.evaluate usa pra regra principal), até
+# DISAPPEARANCE_ALONE_CAP — um sumiço que persiste bem além do mínimo
+# (ex: alguém andando pela loja com as duas mãos escondidas por vários
+# segundos) eventualmente ultrapassa 0.55 sozinho, sem precisar da regra
+# principal disparar junto. Recalibrado em 2026-08-27 depois de um caso
+# real (vídeo de teste) onde isso nunca alertava por mais que a pessoa
+# ficasse andando com as mãos escondidas — ver memória do projeto.
 DISAPPEARANCE_ALONE_CONFIDENCE = 0.35
+DISAPPEARANCE_ESCALATION_STEP = 0.01
+DISAPPEARANCE_ALONE_CAP = 0.9
 
 # Quanto a confiança da regra principal sobe quando as duas regras
 # disparam juntas pra mesma pessoa — sinal corroborado, mais confiável
@@ -244,7 +264,7 @@ def combine_rule_results(still_result: tuple, disappearance_result: tuple) -> tu
     pessoa/frame. Ver as docstrings das duas classes pro motivo dos
     pesos serem assimétricos."""
     still_fired, still_confidence, still_reason = still_result
-    disappear_fired, disappear_reason = disappearance_result
+    disappear_fired, disappear_confidence, disappear_reason = disappearance_result
 
     if still_fired and disappear_fired:
         combined_confidence = min(still_confidence + COMBINED_CONFIDENCE_BOOST, 0.99)
@@ -255,6 +275,6 @@ def combine_rule_results(still_result: tuple, disappearance_result: tuple) -> tu
         return True, still_confidence, still_reason
 
     if disappear_fired:
-        return True, DISAPPEARANCE_ALONE_CONFIDENCE, disappear_reason
+        return True, disappear_confidence, disappear_reason
 
     return False, 0.0, None

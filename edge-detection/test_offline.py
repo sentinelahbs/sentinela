@@ -77,7 +77,7 @@ HAND_OUT_ZONE_COLOR = (160, 160, 160)  # cinza — mão visível fora da zona
 SHOULDER_LINE_COLOR = (255, 200, 0)   # ciano — referência de ombro
 HIP_LINE_COLOR = (200, 0, 200)        # magenta — referência de quadril
 ALERT_BOX_COLOR = (0, 0, 255)         # vermelho — destaque quando uma regra dispara
-PERSON_BOX_COLOR = (200, 200, 200)    # cinza claro — caixa da pessoa
+PERSON_BOX_COLOR = (0, 200, 0)        # verde — pessoa detectada, nenhuma regra ativa no momento
 
 # _make_faststart (corrige o índice do MP4 pro início do arquivo, ver
 # clip_recorder.py pro motivo completo) é reaproveitada de lá — write_clip

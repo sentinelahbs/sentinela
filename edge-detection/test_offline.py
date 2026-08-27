@@ -31,6 +31,18 @@ pra ver os alertas aparecendo no dashboard/admin em vez de só ler CSV:
 
     python test_offline.py video.mp4 --send-to-backend \
         --store-id 4364f77e-... --api-key gYeDT... --camera-label "Teste offline"
+
+Também gera um relatório extra (--no-appearance-grouping desliga): o
+IouTracker (tracker.py) é só geométrico (IOU + distância de centro), então
+uma mesma pessoa que fica oculta por mais que alguns frames, ou anda rápido
+demais entre dois frames processados, vira um track_id novo — o vídeo de
+teste real usado nesta sessão gerou ~10 track_ids pra poucas pessoas de
+verdade. Esse relatório usa a assinatura de cor (appearance.py, já usada
+pra correlação ENTRE câmeras) pra agrupar, DEPOIS que o vídeo inteiro foi
+processado, quais track_ids provavelmente são a mesma pessoa reaparecendo
+— só pra leitura/calibração (arquivo "<vídeo>_pessoas_agrupadas.csv" e um
+resumo no log). É heurístico (roupa parecida pode enganar) e NUNCA afeta
+regras, cooldown, destaque no vídeo anotado ou envio pro backend.
 """
 
 import argparse
@@ -48,6 +60,7 @@ from tracker import IouTracker
 from clip_recorder import ClipRecorder, _make_faststart
 from alert_client import AlertClient
 from pose_rules import SuspiciousBehaviorRule, HandDisappearanceRule, combine_rule_results
+from appearance import color_signature, signature_distance
 from config import _DEFAULT_ZONE, _DEFAULT_HAND_STILL_FRAMES, _DEFAULT_MIN_CONFIDENCE
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -196,6 +209,40 @@ def parse_args():
         help="Quanto incluir DEPOIS do disparo no clipe (default: 10, igual ao padrão de StoreConfig).",
     )
 
+    grouping = parser.add_argument_group(
+        "agrupamento por aparência (heurístico, opcional)",
+        "Depois de processar o vídeo inteiro, tenta reconhecer quando dois track_ids do IouTracker "
+        "(tracker.py, só geométrico -- sem re-identificação por aparência) provavelmente são a MESMA "
+        "pessoa reaparecendo, usando a assinatura de cor de roupa (appearance.py, mesma lógica já usada "
+        "pra correlação entre câmeras). Só gera um relatório extra pra leitura -- nunca muda o que as "
+        "regras avaliam, o cooldown, o destaque no vídeo anotado ou o que é mandado pro backend.",
+    )
+    grouping.add_argument(
+        "--no-appearance-grouping", action="store_true",
+        help="Desliga o relatório de agrupamento por aparência (ligado por padrão -- custo desprezível, ~0.3ms/pessoa/frame).",
+    )
+    grouping.add_argument(
+        "--appearance-max-gap-seconds", type=float, default=5.0,
+        help="Só tenta religar dois track_ids se o intervalo entre o fim de um e o início do outro (tempo de vídeo) for até isso (default: 5.0s).",
+    )
+    grouping.add_argument(
+        "--appearance-max-move-norm", type=float, default=0.35,
+        help="Só tenta religar se o centro da caixa não se deslocou mais que isso, como fração da diagonal do frame (default: 0.35 -- mais generoso que o fallback de centro do tracker, 0.15, porque aqui pode ter passado mais tempo).",
+    )
+    grouping.add_argument(
+        "--appearance-max-color-distance", type=float, default=0.35,
+        help="Distância máxima de assinatura de cor (Bhattacharyya, 0=idêntica, 1=totalmente diferente) pra aceitar como a mesma pessoa (default: 0.35 -- mais rígido que o 0.4 usado na correlação entre câmeras, já que a mesma câmera não muda de iluminação).",
+    )
+    grouping.add_argument(
+        "--appearance-min-duration-seconds", type=float, default=2.0,
+        help=(
+            "Pessoas prováveis que aparecem (do primeiro ao último track_id do grupo) por menos que isso "
+            "são marcadas como possível ruído do detector/tracker no relatório -- um fragmento de <1s "
+            "raramente é uma pessoa de verdade entrando e saindo de quadro. Não remove a linha do CSV, "
+            "só marca e ajusta a contagem 'provável' no resumo do log (default: 2.0s, 0 desliga o filtro)."
+        ),
+    )
+
     args = parser.parse_args()
     if args.send_to_backend and not (args.store_id and args.api_key):
         parser.error("--send-to-backend precisa de --store-id e --api-key")
@@ -243,6 +290,76 @@ def _draw_person(frame, signal, track_id, w, h, rule, fired_labels):
     if fired_labels:
         label = " + ".join(fired_labels)
         cv2.putText(frame, label, (x1, min(h - 5, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, ALERT_BOX_COLOR, 2)
+
+
+def _bbox_center(bbox):
+    x1, y1, x2, y2 = bbox
+    return ((x1 + x2) / 2, (y1 + y2) / 2)
+
+
+def _group_tracks_by_appearance(track_appearance, frame_size, max_gap_seconds, max_move_norm, max_color_distance):
+    """Roda DEPOIS que o vídeo inteiro já foi processado -- por isso não
+    dá pra viver dentro de tracker.py, que só enxerga um frame por vez.
+    track_appearance: {track_id: {first_time_s, first_bbox, first_sig,
+    last_time_s, last_bbox, last_sig}}, já preenchido pelo loop principal.
+
+    Greedy, na ordem em que cada track COMEÇOU: pra cada track novo,
+    procura entre os grupos já abertos (cada um representa uma pessoa
+    provável) aquele cujo último track visto (a) TERMINOU antes desse aqui
+    começar -- gap negativo = os dois coexistiram na cena, são pessoas
+    diferentes na certa, geometria do IouTracker já garante isso -- (b)
+    dentro da janela de tempo, (c) perto o bastante em posição, e (d) com
+    assinatura de cor parecida; entre os candidatos, fica com o de menor
+    distância de cor. Sem candidato -> abre um grupo novo (pode ser uma
+    pessoa que só passou uma vez).
+
+    Retorna (track_to_group: {track_id: group_id}, groups: lista de dicts
+    com id/members/distances, na ordem em que foram abertos)."""
+    w, h = frame_size
+    diagonal = (w ** 2 + h ** 2) ** 0.5
+
+    groups = []
+    track_to_group = {}
+    ordered = sorted(track_appearance.items(), key=lambda kv: kv[1]["first_time_s"])
+
+    for track_id, rec in ordered:
+        best = None
+        for group in groups:
+            gap = rec["first_time_s"] - group["last_time_s"]
+            if gap < 0 or gap > max_gap_seconds:
+                continue
+            cx1, cy1 = _bbox_center(group["last_bbox"])
+            cx2, cy2 = _bbox_center(rec["first_bbox"])
+            move_norm = ((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2) ** 0.5 / diagonal if diagonal else 0.0
+            if move_norm > max_move_norm:
+                continue
+            color_dist = signature_distance(group["last_sig"], rec["first_sig"])
+            if color_dist > max_color_distance:
+                continue
+            if best is None or color_dist < best[1]:
+                best = (group, color_dist)
+
+        if best is not None:
+            group, color_dist = best
+            group["last_time_s"] = rec["last_time_s"]
+            group["last_bbox"] = rec["last_bbox"]
+            group["last_sig"] = rec["last_sig"]
+            group["members"].append(track_id)
+            group["distances"].append(color_dist)
+            track_to_group[track_id] = group["id"]
+        else:
+            group_id = f"pessoa_{len(groups) + 1}"
+            groups.append({
+                "id": group_id,
+                "last_time_s": rec["last_time_s"],
+                "last_bbox": rec["last_bbox"],
+                "last_sig": rec["last_sig"],
+                "members": [track_id],
+                "distances": [],
+            })
+            track_to_group[track_id] = group_id
+
+    return track_to_group, groups
 
 
 def main():
@@ -312,14 +429,23 @@ def main():
     events = []
     highlight_hold_frames = max(1, int(HIGHLIGHT_HOLD_SECONDS * effective_fps))
     active_highlights = {}  # person_id -> frames restantes de destaque visual
+    # track_id -> {first_time_s, first_bbox, first_sig, last_time_s, last_bbox,
+    # last_sig} -- alimentado a cada frame, consumido só no fim (ver
+    # _group_tracks_by_appearance) pro relatório de agrupamento por aparência.
+    track_appearance = {}
 
     frame_index = 0
     processed_count = 0
     start_time = time.perf_counter()
 
     try:
-        with open(log_path, "w", newline="", encoding="utf-8") as log_file:
-            csv_writer = csv.writer(log_file)
+        # utf-8-sig (BOM) + ";" como separador -- Excel em Windows pt-BR usa
+        # "," como separador decimal, então trata "," na LISTA como parte do
+        # número e não como delimitador: um CSV com "," abre inteiro numa
+        # coluna só, sem dar erro nenhum (o arquivo está correto, o Excel
+        # que interpreta errado por padrão nessa configuração regional).
+        with open(log_path, "w", newline="", encoding="utf-8-sig") as log_file:
+            csv_writer = csv.writer(log_file, delimiter=";")
             csv_writer.writerow([
                 "frame", "tempo_video_s", "pessoa", "regra", "confianca", "teria_alertado", "enviado_backend", "motivo",
             ])
@@ -353,6 +479,22 @@ def main():
 
                 for track_id, signal in zip(track_ids, signals):
                     person_id = f"person_{track_id}"
+
+                    if not args.no_appearance_grouping:
+                        # Precisa ser ANTES do bloco de desenho lá embaixo --
+                        # esse mesmo `frame` é reaproveitado ali e passa a
+                        # ter as anotações de debug desenhadas em cima.
+                        sig = color_signature(frame, signal.person_bbox)
+                        if track_id not in track_appearance:
+                            track_appearance[track_id] = {
+                                "first_time_s": video_time_s, "first_bbox": signal.person_bbox, "first_sig": sig,
+                                "last_time_s": video_time_s, "last_bbox": signal.person_bbox, "last_sig": sig,
+                            }
+                        else:
+                            rec = track_appearance[track_id]
+                            rec["last_time_s"] = video_time_s
+                            rec["last_bbox"] = signal.person_bbox
+                            rec["last_sig"] = sig
 
                     still_result = rule.evaluate(person_id, signal.hands_norm)
                     disappear_result = disappearance_rule.evaluate(person_id, signal)
@@ -412,7 +554,7 @@ def main():
                             frame_index, f"{video_time_s:.2f}", person_id, rule_label,
                             confidence, would_alert, sent_to_backend, reason,
                         ])
-                        events.append((frame_index, person_id, rule_label, confidence, would_alert, sent_to_backend))
+                        events.append((frame_index, person_id, rule_label, confidence, would_alert, sent_to_backend, track_id))
 
                 if writer is not None:
                     _draw_zone(frame, zone_points, frame_w, frame_h)
@@ -454,6 +596,73 @@ def main():
     log.info(f"Log CSV: {log_path}")
     if writer is not None:
         log.info(f"Vídeo anotado: {annotated_path}")
+
+    if not args.no_appearance_grouping and track_appearance:
+        track_to_group, groups = _group_tracks_by_appearance(
+            track_appearance, frame_size=(frame_w, frame_h),
+            max_gap_seconds=args.appearance_max_gap_seconds,
+            max_move_norm=args.appearance_max_move_norm,
+            max_color_distance=args.appearance_max_color_distance,
+        )
+        for group in groups:
+            members = group["members"]
+            group["duration_s"] = (
+                max(track_appearance[t]["last_time_s"] for t in members)
+                - min(track_appearance[t]["first_time_s"] for t in members)
+            )
+        merged_groups = [g for g in groups if len(g["members"]) > 1]
+        min_duration = args.appearance_min_duration_seconds
+        likely_real = [g for g in groups if g["duration_s"] >= min_duration]
+
+        log.info("=" * 60)
+        log.info(
+            f"Agrupamento por aparência (heurístico por cor de roupa -- NÃO alterou regras, cooldown "
+            f"nem envio pro backend): {len(track_appearance)} track_id(s) do tracker consolidados em "
+            f"{len(groups)} pessoa(s) provável(eis) no total."
+        )
+        if min_duration > 0:
+            log.info(
+                f"  Dessas, {len(likely_real)} aparecem por >= {min_duration:.1f}s -- estimativa mais "
+                f"realista de pessoas de verdade (as outras {len(groups) - len(likely_real)} tendem a ser "
+                f"ruído do detector/tracker: um frame isolado ou fragmento curto demais pra ser alguém "
+                f"entrando e saindo de quadro de verdade). Ver coluna 'provavel_ruido' no CSV; ajuste "
+                f"--appearance-min-duration-seconds se quiser outro corte."
+            )
+        if merged_groups:
+            for group in merged_groups:
+                log.info(f"  {group['id']}: track_ids {group['members']} (distância de cor média {sum(group['distances']) / len(group['distances']):.2f})")
+        else:
+            log.info("  Nenhuma fusão feita -- ou cada track_id já era uma pessoa distinta, ou nenhuma correspondência de cor ficou dentro dos limites configurados.")
+        log.info(
+            "  Heurístico: roupa parecida entre pessoas diferentes pode enganar. Confira o vídeo "
+            "anotado antes de usar esse número pra decisão real; ajuste --appearance-max-* se sobrar "
+            "ou faltar fusão."
+        )
+
+        agrupados_path = os.path.join(output_dir, f"{video_stem}_pessoas_agrupadas.csv")
+        with open(agrupados_path, "w", newline="", encoding="utf-8-sig") as f:  # ver comentário no log_path acima
+            csv_writer = csv.writer(f, delimiter=";")
+            csv_writer.writerow([
+                "pessoa_provavel", "track_ids", "primeiro_aparecimento_s", "ultimo_aparecimento_s",
+                "duracao_s", "provavel_ruido", "eventos_disparados", "teria_alertado", "distancia_cor_media",
+            ])
+            for group in groups:
+                members = set(group["members"])
+                group_events = [e for e in events if e[6] in members]
+                avg_dist = f"{sum(group['distances']) / len(group['distances']):.3f}" if group["distances"] else ""
+                csv_writer.writerow([
+                    group["id"],
+                    ",".join(str(t) for t in group["members"]),
+                    f"{min(track_appearance[t]['first_time_s'] for t in members):.2f}",
+                    f"{max(track_appearance[t]['last_time_s'] for t in members):.2f}",
+                    f"{group['duration_s']:.2f}",
+                    min_duration > 0 and group["duration_s"] < min_duration,
+                    len(group_events),
+                    sum(1 for e in group_events if e[4]),
+                    avg_dist,
+                ])
+        log.info(f"Relatório de pessoas agrupadas: {agrupados_path}")
+
     if args.frame_skip > 1:
         log.warning(
             f"Lembrete: essa rodada usou frame-skip={args.frame_skip} (fps efetivo {effective_fps:.2f}, "

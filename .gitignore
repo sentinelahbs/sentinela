@@ -31,6 +31,17 @@ edge-detection/correlator.db*
 # Logs por câmera do supervisor (ver supervisor.py) — saída de runtime, não código
 edge-detection/logs/
 
+# Saída do test_offline.py (log CSV, vídeo anotado, relatório de
+# agrupamento por aparência, clipes enviados de teste) — resultado de
+# rodar contra um vídeo de teste, não código. Normalmente cai na mesma
+# pasta do vídeo de entrada (fora do repo), mas fica aqui se rodado sem
+# --output-dir apontando pra fora.
+edge-detection/*_eventos.csv
+edge-detection/*_anotado.mp4
+edge-detection/*_pessoas_agrupadas.csv
+edge-detection/pessoas_agrupadas.csv
+edge-detection/clips_teste_offline/
+
 # Node / Vite
 dashboard/node_modules/
 dashboard/dist/

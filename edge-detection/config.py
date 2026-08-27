@@ -73,7 +73,20 @@ class StoreConfig:
 # threshold — isso fica pra calibração manual depois, ver
 # edge_detection_calibration na memória do projeto).
 _DEFAULT_ZONE = [(0.1, 0.35), (0.9, 0.35), (0.9, 0.98), (0.1, 0.98)]
-_DEFAULT_HAND_STILL_FRAMES = 6
+# Era 6 -- recalibrado usando test_offline.py contra um vídeo real de
+# furto (ver memória do projeto): a 6 frames, disparos fracos (confiança
+# bem no mínimo, ~0.2s de mão "parada") viravam falso positivo com
+# frequência, sem ganhar nada de detecção real -- 15 cortou boa parte
+# desses disparos fracos sem perder os disparos de sinal forte no mesmo
+# vídeo (a pior diferença observada foi um atraso de <1s pra detectar
+# uma pessoa de verdade concretizando o gesto). ATENÇÃO: esse número é
+# em FRAMES, não segundos -- quanto tempo real isso representa depende
+# do fps de captura da câmera. O vídeo de teste usado tinha ~28fps
+# nativo (15 frames ~= 0,5s); já o fps_target de produção (StoreConfig
+# abaixo) é 15fps, o que faria os mesmos 15 frames representarem ~1s de
+# mão parada de verdade -- recalibrar de novo com test_offline.py assim
+# que tiver câmera/hardware real definido pra loja.
+_DEFAULT_HAND_STILL_FRAMES = 15
 _DEFAULT_MIN_CONFIDENCE = 0.55
 
 BOX_CONFIG_PATH = os.environ.get("BOX_CONFIG_PATH", "./box_config.json")

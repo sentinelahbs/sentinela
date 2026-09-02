@@ -226,8 +226,8 @@ def parse_args():
         help="Quanto de vídeo (em segundos de vídeo) incluir ANTES do momento do disparo no clipe (default: 5, igual ao padrão de StoreConfig).",
     )
     backend.add_argument(
-        "--post-event-seconds", type=int, default=10,
-        help="Quanto incluir DEPOIS do disparo no clipe (default: 10, igual ao padrão de StoreConfig).",
+        "--post-event-seconds", type=int, default=20,
+        help="Quanto incluir DEPOIS do disparo no clipe (default: 20, igual ao padrão de StoreConfig).",
     )
 
     grouping = parser.add_argument_group(

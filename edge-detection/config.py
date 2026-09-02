@@ -81,7 +81,13 @@ class StoreConfig:
     api_key: str                   # autenticação da box com o backend
     cameras: list                  # lista de CameraConfig
     pre_event_seconds: int = 5     # quanto de vídeo guardar ANTES do evento
-    post_event_seconds: int = 10   # quanto guardar DEPOIS do evento
+    # Quanto guardar DEPOIS do evento -- era 10s, aumentado pra 20s (2026-09-01)
+    # pra dar mais margem de mostrar o que acontece depois do disparo (pessoa
+    # continuando a mexer, saindo da loja, etc.) na revisão do alerta. Sem
+    # contrapartida técnica real: a câmera de produção é um stream contínuo
+    # ao vivo (RollingCapture), não um arquivo de tamanho fixo -- clipe mais
+    # longo só usa mais espaço de armazenamento por alerta, não "esgota" nada.
+    post_event_seconds: int = 20
     fps_target: int = 15           # roda a inferência a uma taxa menor que a
                                     # captura para economizar CPU/GPU da box
 

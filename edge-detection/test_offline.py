@@ -578,7 +578,7 @@ def main():
                                     # dessincronizados da posição real do arquivo
                                     # a partir daqui.
                                     frame_index += adapter.frames_yielded
-                                    alert_client.send_alert(
+                                    alert_response = alert_client.send_alert(
                                         camera_id=args.camera_id,
                                         camera_label=camera_label,
                                         confidence=confidence,
@@ -586,6 +586,15 @@ def main():
                                         clip_path=clip_path,
                                         thumbnail_bytes=thumbnail,
                                     )
+                                    # send_alert() engole RequestException internamente
+                                    # e devolve None em vez de levantar (pensado pra
+                                    # main.py, onde isso vira reenfileiramento futuro,
+                                    # não deve derrubar a detecção ao vivo) -- aqui
+                                    # precisa checar o retorno, senão uma falha de
+                                    # rede real (timeout, DNS, etc.) passava batido
+                                    # como sucesso só por não ter lançado exceção.
+                                    if alert_response is None:
+                                        raise RuntimeError("send_alert() retornou None (falha já logada por [AlertClient] acima)")
                                     sent_to_backend = True
                                     log.info(f"  -> alerta enviado pro backend (loja {args.store_id})")
                                 except Exception as exc:

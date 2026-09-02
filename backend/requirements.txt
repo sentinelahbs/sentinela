@@ -12,3 +12,8 @@ requests==2.34.2
 slowapi==0.1.9
 python-multipart==0.0.32
 alembic==1.14.0
+# Segundo parecer de IA nos alertas (ver ai_review.py) -- opencv só pra
+# extrair alguns frames do clipe já recebido, não faz nenhuma detecção
+# aqui (isso continua sendo trabalho da box, edge-detection/).
+anthropic==1.3.0
+opencv-python-headless==4.10.0.84

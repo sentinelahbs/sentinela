@@ -349,6 +349,14 @@ class Alert(Base):
     reviewed_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
 
+    # Segundo parecer de IA (ver ai_review.py) -- roda em background depois
+    # que o alerta já foi salvo e a box já recebeu resposta, nunca atrasa
+    # nem derruba o alerta principal. Ambos None até o parecer terminar (ou
+    # pra sempre, se ANTHROPIC_API_KEY não estiver configurada, ou se a
+    # análise falhar -- é um sinal complementar, não obrigatório).
+    ai_verdict = Column(String, nullable=True)        # "provavel_furto" | "provavel_falso_positivo" | "inconclusivo"
+    ai_justification = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     store = relationship("Store", back_populates="alerts")

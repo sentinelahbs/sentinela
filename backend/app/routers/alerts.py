@@ -1,11 +1,13 @@
+import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 import datetime
 
-from database import get_db
+from ai_review import analyze_alert
+from database import SessionLocal, get_db
 from models import Alert, AlertStatus, Camera, Company, Store, User
 from schemas import AlertOut, AlertReviewIn
 from auth import get_current_user, get_store_from_edge_key, assert_user_can_access_store
@@ -14,6 +16,35 @@ from tenant_context import set_company_context, set_store_lookup
 
 router = APIRouter(prefix="/v1", tags=["alerts"])
 clip_storage = ClipStorage()
+log = logging.getLogger("ai_review")
+
+
+def _run_ai_review(alert_id: str, company_id: str, clip_bytes: bytes, reason: str) -> None:
+    """Roda em background (ver BackgroundTasks.add_task abaixo) -- por
+    rodar DEPOIS da resposta HTTP já ter sido enviada, a Session da
+    requisição original já foi fechada (get_db fecha no finally), por
+    isso abre uma Session própria aqui em vez de reaproveitar a `db` do
+    request. Mesmo princípio de sempre: nunca deixa uma falha aqui virar
+    exceção não tratada (rodando fora de um request, isso derrubaria o
+    processo do worker, não só devolveria um 500)."""
+    result = analyze_alert(clip_bytes, reason)
+    if result is None:
+        return
+    veredito, justificativa = result
+
+    db = SessionLocal()
+    try:
+        set_company_context(db, company_id)
+        alert = db.query(Alert).filter(Alert.id == alert_id).first()
+        if alert is None:
+            return
+        alert.ai_verdict = veredito
+        alert.ai_justification = justificativa
+        db.commit()
+    except Exception as exc:
+        log.warning(f"[ai_review] Falha ao salvar parecer da IA no alerta {alert_id}: {exc}")
+    finally:
+        db.close()
 
 # Limites de upload do clipe/thumbnail enviados pela box. Um clipe típico
 # (5s de pré-evento + 10s de pós-evento, ver `pre_event_seconds` /
@@ -64,6 +95,7 @@ def _read_upload_limited(upload: UploadFile, max_bytes: int, field_name: str) ->
 
 @router.post("/stores/{store_id}/alerts", response_model=AlertOut)
 def receive_alert(
+    background_tasks: BackgroundTasks,
     store_id: str,
     camera_id: Optional[str] = Form(None),
     camera_label: str = Form(...),
@@ -131,12 +163,23 @@ def receive_alert(
         thumbnail_url=thumbnail_url,
         status=AlertStatus.PENDING,
     )
+    # Valor puro antes do commit -- mesmo motivo de sempre (ver
+    # review_alert logo abaixo): depois do commit() a sessão do request
+    # perde o contexto de RLS, e o valor já está carregado no objeto.
+    company_id = store.company_id
+
     db.add(alert)
     db.commit()
     # commit() encerra a transação e reseta o SET LOCAL setado pelo
     # get_store_from_edge_key — precisa religar antes do refresh() abaixo.
     set_store_lookup(db, store_id)
     db.refresh(alert)
+
+    # Segundo parecer de IA (ver ai_review.py) -- roda em background,
+    # depois que a resposta já foi mandada pra box, com sua própria
+    # Session de banco (a `db` daqui fecha assim que a request termina).
+    # Nunca atrasa nem derruba esse endpoint se falhar.
+    background_tasks.add_task(_run_ai_review, alert.id, company_id, clip_bytes, reason)
 
     # Aqui é o ponto natural pra disparar push notification pro app mobile
     # do gestor responsável por essa loja, se a confiança for alta.

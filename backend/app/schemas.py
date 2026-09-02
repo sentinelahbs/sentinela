@@ -19,6 +19,8 @@ class AlertOut(BaseModel):
     clip_url: str
     thumbnail_url: Optional[str]
     status: str
+    ai_verdict: Optional[str] = None
+    ai_justification: Optional[str] = None
     created_at: datetime
 
     class Config:

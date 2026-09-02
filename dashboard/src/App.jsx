@@ -34,6 +34,7 @@ import {
   Link2,
   LifeBuoy,
   MessageCircle,
+  Sparkles,
 } from "lucide-react";
 
 // Em produção, defina VITE_API_BASE (ex: https://api.vigialoja.com.br) nas
@@ -74,6 +75,18 @@ const COLORS = {
 // Sombra compartilhada — dá profundidade a painéis, cartões e modais sem
 // depender de bordas mais fortes (fica sutil demais em fundo escuro sozinha).
 const SHADOW = "0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -8px rgba(0,0,0,0.55)";
+
+// Segundo parecer de IA (ver ai_review.py no backend) — roda em background
+// depois que o alerta já foi salvo, então alert.ai_verdict/ai_justification
+// ficam null até terminar (ou pra sempre, se a análise falhar — é um sinal
+// complementar, nunca obrigatório pro alerta existir e ser revisado).
+const AI_VERDICT_LABELS = {
+  provavel_furto: "IA: provável furto",
+  provavel_falso_positivo: "IA: provável falso positivo",
+  inconclusivo: "IA: inconclusivo",
+};
+const AI_VERDICT_COLOR = (verdict) =>
+  verdict === "provavel_furto" ? COLORS.red : verdict === "provavel_falso_positivo" ? COLORS.teal : COLORS.amber;
 const SHADOW_SOFT = "0 1px 2px rgba(0,0,0,0.25), 0 4px 14px -6px rgba(0,0,0,0.4)";
 
 const globalFonts = `
@@ -2825,6 +2838,20 @@ function Dashboard({ onLogout, accessPaused }) {
                     </div>
                     <StatusBadge status={selectedAlert.status} />
                   </div>
+
+                  {selectedAlert.ai_verdict && (
+                    <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 8, background: COLORS.panelAlt, border: `1px solid ${COLORS.borderSoft}`, marginBottom: 18 }}>
+                      <Sparkles size={16} color={AI_VERDICT_COLOR(selectedAlert.ai_verdict)} style={{ flexShrink: 0, marginTop: 2 }} />
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: AI_VERDICT_COLOR(selectedAlert.ai_verdict), marginBottom: 3 }}>
+                          {AI_VERDICT_LABELS[selectedAlert.ai_verdict] || `IA: ${selectedAlert.ai_verdict}`}
+                        </div>
+                        <div style={{ fontSize: 12.5, color: COLORS.textMuted, lineHeight: 1.4 }}>
+                          {selectedAlert.ai_justification}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
                     <button className="lp-btn" onClick={() => reviewAlert(selectedAlert.id, "confirmed")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 8, border: "none", background: COLORS.red, color: "#fff", fontSize: 13, fontWeight: 600 }}>

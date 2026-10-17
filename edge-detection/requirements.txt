@@ -3,7 +3,7 @@ ultralytics==8.3.28
 onnxruntime==1.19.2
 mediapipe==0.10.18
 shapely==2.0.6
-requests==2.32.3
+requests==2.34.2
 numpy==1.26.4
 # Usado por clip_recorder.py (produção, ClipRecorder.write_clip) e por
 # test_offline.py -- corrige o índice (moov atom) dos vídeos gerados pro
